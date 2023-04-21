@@ -1,5 +1,7 @@
 import os
 
+from numba import njit
+
 ABS_PATH = os.path.dirname(os.path.abspath(__file__))
 
 import numpy as np
@@ -43,9 +45,15 @@ def load_tssb_datasets(names=None):
     return pd.DataFrame.from_records(df, columns=["dataset", "window_size", "change_points", "labels", "time_series"])
 
 
+@njit(fastmath=True, cache=True)
 def create_segmentation_labels(cps, labels, ts_len):
     seg_labels = np.zeros(shape=ts_len, dtype=np.int64)
-    segments = [0] + cps.tolist() + [ts_len]
+
+    segments = np.concatenate((
+        np.array([0]),
+        cps,
+        np.array([ts_len])
+    ))
 
     for idx in range(1, len(segments)):
         seg_start, seg_end = segments[idx-1], segments[idx]
