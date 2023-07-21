@@ -418,9 +418,9 @@ class ClaSPEnsemble(ClaSP):
                 best_tc = (lbound, ubound)
                 best_clasp = clasp
             else:
-                if self.early_stopping is True: break
+                if self.early_stopping is True and best_clasp is not None: break
 
-            if self.early_stopping is True and best_clasp.split(validation=validation, threshold=threshold) is not None:
+            if self.early_stopping is True and best_clasp is not None and best_clasp.split(validation=validation, threshold=threshold) is not None:
                 break
 
         self.knn = best_clasp.knn

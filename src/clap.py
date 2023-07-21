@@ -1,17 +1,18 @@
 import numpy as np
-from numba import njit
 from sklearn.exceptions import NotFittedError
+from sklearn.metrics import confusion_matrix
 
 from claspy.nearest_neighbour import KSubsequenceNeighbours
-from claspy.scoring import map_scores
 from claspy.utils import check_input_time_series
-from src.utils import create_segmentation_labels
+from claspy.window_size import map_window_size_methods
+from src.scoring import map_scores
+from src.utils import create_state_labels
 
 
 def cross_val_multilabels(offsets, cps, labels, window_size):
     n_timepoints, k_neighbours = offsets.shape
 
-    y_true = create_segmentation_labels(cps, labels, n_timepoints)
+    y_true = create_state_labels(cps, labels, n_timepoints)
     knn_labels = np.zeros(shape=(k_neighbours, n_timepoints), dtype=np.int64)
 
     for i_neighbor in range(k_neighbours):
@@ -25,16 +26,16 @@ def cross_val_multilabels(offsets, cps, labels, window_size):
         u_labels, counts = np.unique(neigh_labels, return_counts=True)
         y_pred[idx] = u_labels[np.argmax(counts)]
 
-    for split_idx in cps:
+    for idx, split_idx in enumerate(cps):
         exclusion_zone = np.arange(split_idx - window_size, split_idx)
-        y_pred[exclusion_zone] = 1
+        y_pred[exclusion_zone] = labels[idx + 1]
 
     return y_true, y_pred
 
 
 class CLaP:
 
-    def __init__(self, window_size=10, k_neighbours=3, distance="znormed_euclidean_distance", score="roc_auc"):
+    def __init__(self, window_size="suss", k_neighbours=3, distance="znormed_euclidean_distance", score="f1"):
         self.window_size = window_size
         self.k_neighbours = k_neighbours
         self.distance = distance
@@ -62,45 +63,66 @@ class CLaP:
         check_input_time_series(time_series)
         # todo: check change points
 
-        labels = np.zeros(shape=change_points.shape[0]+1, dtype=np.int64)
+        if isinstance(self.window_size, str):
+            self.window_size = max(1, map_window_size_methods(self.window_size)(time_series) // 2)
 
-        if change_points.shape[0] > 0:
-            labels[1] = 1
+        knn = KSubsequenceNeighbours(
+            window_size=self.window_size,
+            k_neighbours=self.k_neighbours,
+            distance=self.distance,
+        ).fit(time_series)
 
-        segments = change_points.tolist() + [time_series.shape[0]]
+        labels = np.arange(change_points.shape[0] + 1)
 
-        last_label = np.max(labels)
+        y_true, y_pred = cross_val_multilabels(
+            knn.offsets,
+            change_points,
+            labels,
+            self.window_size
+        )
 
-        for idx in range(2, len(segments)):
-            seg_start, seg_end = segments[idx-1], segments[idx]
+        score = self.score(y_true, y_pred)
 
-            tmp_series = time_series[:seg_end]
-            tmp_points = change_points[:idx]
-            tmp_labels = np.arange(0, last_label+2)
-            tmp_scores = np.zeros(shape=tmp_labels.shape[0], dtype=np.float64)
+        while np.unique(labels).shape[0] > 1:
+            unique_labels = np.unique(labels)
 
-            knn = KSubsequenceNeighbours(
-                window_size=self.window_size,
-                k_neighbours=self.k_neighbours,
-                distance=self.distance,
-            ).fit(tmp_series)
+            conf_matrix = confusion_matrix(y_true, y_pred)
+            conf_idx, conf = np.zeros(labels.shape[0], np.int64), np.zeros(labels.shape[0], np.float64)
 
-            for kdx, tmp_label in enumerate(tmp_labels):
-                label_config = np.concatenate((labels[:idx], [tmp_label]))
+            for idx, c in enumerate(conf_matrix):
+                tmp = c.copy()
+                tmp[idx] = 0
+                kdx = np.argmax(tmp)
+                conf_idx[idx], conf[idx] = kdx, c[kdx] / np.sum(c)
 
-                y_true, y_pred = cross_val_multilabels(
-                    knn.offsets,
-                    tmp_points,
-                    label_config,
-                    self.window_size
-                )
+            max_conf = np.argmax(conf)
+            conf_label1 = unique_labels[max_conf]
+            conf_label2 = unique_labels[conf_idx[max_conf]]
 
-                tmp_scores[kdx] = self.score(y_true[seg_start:], y_pred[seg_start:])
+            conf_label1_size = conf[max_conf]
+            label2_size = np.sum(conf_matrix[conf_idx[max_conf]]) / y_true.shape[0]
 
-            labels[idx] = tmp_labels[np.argmax(tmp_scores)]
-            last_label = np.max(labels)
+            if conf_label1_size / 2 <= label2_size:
+                break
 
-        self.labels = labels
+            tmp_labels = labels.copy()
+            tmp_labels[tmp_labels == conf_label2] = conf_label1
+
+            y_true_tmp, y_pred_tmp = cross_val_multilabels(
+                knn.offsets,
+                change_points,
+                tmp_labels,
+                self.window_size
+            )
+
+            tmp_score = self.score(y_true_tmp, y_pred_tmp)
+            if tmp_score > score:
+                score, labels = tmp_score, tmp_labels
+                y_true, y_pred = y_true_tmp, y_pred_tmp
+            else:
+                break
+
+        self.labels = labels - labels.min()
 
         self.is_fitted = True
         return self

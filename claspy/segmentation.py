@@ -1,3 +1,4 @@
+import itertools
 import os
 import warnings
 from queue import PriorityQueue
@@ -6,10 +7,36 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from sklearn.exceptions import NotFittedError
+from sklearn.metrics import confusion_matrix, f1_score
 
 from claspy.clasp import ClaSPEnsemble
 from claspy.utils import check_input_time_series, check_excl_radius
 from claspy.window_size import map_window_size_methods
+from src.utils import create_state_labels
+
+
+def cross_val_multilabels(offsets, cps, labels, window_size):
+    n_timepoints, k_neighbours = offsets.shape
+
+    y_true = create_state_labels(cps, labels, n_timepoints)
+    knn_labels = np.zeros(shape=(k_neighbours, n_timepoints), dtype=np.int64)
+
+    for i_neighbor in range(k_neighbours):
+        neighbours = offsets[:, i_neighbor]
+        knn_labels[i_neighbor] = y_true[neighbours]
+
+    y_pred = np.zeros_like(y_true)
+
+    for idx in range(n_timepoints):
+        neigh_labels = knn_labels[:, idx]
+        u_labels, counts = np.unique(neigh_labels, return_counts=True)
+        y_pred[idx] = u_labels[np.argmax(counts)]
+
+    for idx, split_idx in enumerate(cps):
+        exclusion_zone = np.arange(split_idx - window_size, split_idx)
+        y_pred[exclusion_zone] = labels[idx+1]
+
+    return y_true, y_pred
 
 
 class BinaryClaSPSegmentation:
@@ -119,7 +146,7 @@ class BinaryClaSPSegmentation:
 
         return True
 
-    def _local_segmentation(self, lbound, ubound, change_points):
+    def _local_segmentation(self, lbound, ubound):
         """
         Perform local segmentation of the time series within the range [lbound, ubound) using the ClaSP algorithm.
 
@@ -129,8 +156,6 @@ class BinaryClaSPSegmentation:
             The left bound of the time series range.
         ubound : int
             The right bound of the time series range.
-        change_points : list of int
-            A list of current change points in the time series.
 
         Returns:
         --------
@@ -154,7 +179,11 @@ class BinaryClaSPSegmentation:
         if cp is None: return
         score = clasp.profile[cp]
 
-        if not self._cp_is_valid(lbound + cp, change_points): return
+        if not self._cp_is_valid(lbound + cp, self.change_points): return
+
+        # self.labels.append(label)
+        self.change_points.append(lbound + cp)
+        self.scores.append(score)
 
         self.clasp_tree.append(((lbound, ubound), clasp))
         self.queue.put((-score, len(self.clasp_tree) - 1))
@@ -214,6 +243,9 @@ class BinaryClaSPSegmentation:
         self.queue = PriorityQueue()
         self.clasp_tree = []
 
+        self.change_points = []
+        self.scores = []
+
         if self.n_segments == "learn":
             self.n_segments = time_series.shape[0] // self.min_seg_size
 
@@ -234,15 +266,15 @@ class BinaryClaSPSegmentation:
             cp = clasp.split(validation=self.validation, threshold=self.threshold)
 
             if cp is not None:
+                self.change_points.append(cp)
+                self.scores.append(clasp.profile[cp])
+
                 self.clasp_tree.append((prange, clasp))
                 self.queue.put((-clasp.profile[cp], len(self.clasp_tree) - 1))
 
             profile = clasp.profile
         else:
             profile = np.full(shape=self.n_timepoints - self.window_size + 1, fill_value=-np.inf, dtype=np.float64)
-
-        change_points = []
-        scores = []
 
         for idx in range(self.n_segments - 1):
             # happens if no valid change points exist anymore
@@ -255,18 +287,16 @@ class BinaryClaSPSegmentation:
             profile[lbound:ubound - self.window_size + 1] = np.max(
                 [profile[lbound:ubound - self.window_size + 1], clasp.profile], axis=0)
 
-            change_points.append(cp)
-            scores.append(-priority)
-
-            if len(change_points) == self.n_segments - 1: break
+            if len(self.change_points) == self.n_segments - 1: break
 
             lrange, rrange = (lbound, cp), (cp, ubound)
 
             for prange in (lrange, rrange):
-                self._local_segmentation(*prange, change_points)
+                self._local_segmentation(*prange)
 
-        sorted_cp_args = np.argsort(change_points)
-        self.change_points, self.scores = np.asarray(change_points)[sorted_cp_args], np.asarray(scores)[sorted_cp_args]
+        sorted_cp_args = np.argsort(self.change_points)
+        self.change_points = np.asarray(self.change_points)[sorted_cp_args]
+        self.scores = np.asarray(self.scores)[sorted_cp_args]
 
         profile[np.isinf(profile)] = np.nan
         self.profile = pd.Series(profile).interpolate(limit_direction="both").to_numpy()
