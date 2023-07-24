@@ -43,14 +43,16 @@ DATASETS = [
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
 
-    dataset, w, cps, labels, ts = load_tssb_datasets(names=("Adiac",)).iloc[0,:]
+    dataset, w, cps, labels, ts = load_tssb_datasets(names=("ArrowHead",)).iloc[0,:]
 
     clasp = BinaryClaSPSegmentation()
     found_cps = clasp.fit_predict(ts)
-    # pred_labels = clasp.labels
+    pred_labels = clasp.labels
 
-    clap = CLaP()
-    pred_labels = clap.fit(ts, cps).labels
+    # found_cps = np.arange(0, ts.shape[0]-w, w * 5)
+
+    clap = CLaP(window_size=w) #
+    pred_labels = clap.fit(ts, found_cps).labels
 
     true_seg_labels = create_state_labels(cps, labels, ts.shape[0])
     pred_seg_labels = create_state_labels(found_cps, pred_labels, ts.shape[0])

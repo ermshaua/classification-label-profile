@@ -24,7 +24,7 @@ if __name__ == '__main__':
         # pred_labels = clasp.labels
 
         clap = CLaP()
-        pred_labels = clap.fit(ts, cps).labels
+        pred_labels = clap.fit(ts, found_cps).labels
 
         true_seg_labels = create_state_labels(cps, labels, ts.shape[0])
         pred_seg_labels = create_state_labels(found_cps, pred_labels, ts.shape[0]) #

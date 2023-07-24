@@ -146,6 +146,9 @@ class BinaryClaSPSegmentation:
 
         return True
 
+    def _update_labels(self, cp):
+        return True
+
     def _local_segmentation(self, lbound, ubound):
         """
         Perform local segmentation of the time series within the range [lbound, ubound) using the ClaSP algorithm.
@@ -180,8 +183,8 @@ class BinaryClaSPSegmentation:
         score = clasp.profile[cp]
 
         if not self._cp_is_valid(lbound + cp, self.change_points): return
+        if not self._update_labels(lbound + cp): return
 
-        # self.labels.append(label)
         self.change_points.append(lbound + cp)
         self.scores.append(score)
 
@@ -245,6 +248,7 @@ class BinaryClaSPSegmentation:
 
         self.change_points = []
         self.scores = []
+        self.labels = []
 
         if self.n_segments == "learn":
             self.n_segments = time_series.shape[0] // self.min_seg_size
@@ -265,7 +269,7 @@ class BinaryClaSPSegmentation:
 
             cp = clasp.split(validation=self.validation, threshold=self.threshold)
 
-            if cp is not None:
+            if cp is not None and self._cp_is_valid(cp, self.change_points) and self._update_labels(cp):
                 self.change_points.append(cp)
                 self.scores.append(clasp.profile[cp])
 
