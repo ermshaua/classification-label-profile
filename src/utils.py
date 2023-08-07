@@ -4,8 +4,35 @@ from numba import njit
 
 ABS_PATH = os.path.dirname(os.path.abspath(__file__))
 
+from sklearn.base import BaseEstimator, TransformerMixin
+
 import numpy as np
 import pandas as pd
+
+
+def load_datasets(dataset, selection=None):
+    desc_filename = ABS_PATH + f"/../datasets/{dataset}/desc.txt"
+    desc_file = []
+
+    with open(desc_filename, 'r') as file:
+        for line in file.readlines(): desc_file.append(line.split(","))
+
+    df = []
+
+    for idx, row in enumerate(desc_file):
+        if selection is not None and idx not in selection: continue
+        (ts_name, window_size), change_points = row[:2], row[2:]
+        if len(change_points) == 1 and change_points[0] == "\n": change_points = list()
+        path = ABS_PATH + f'/../datasets/{dataset}/'
+
+        if os.path.exists(path + ts_name + ".txt"):
+            ts = np.loadtxt(fname=path + ts_name + ".txt", dtype=np.float64)
+        else:
+            ts = np.load(file=path + "data.npz")[ts_name]
+
+        df.append((ts_name, int(window_size), np.array([int(_) for _ in change_points]), ts))
+
+    return pd.DataFrame.from_records(df, columns=["name", "window_size", "change_points", "time_series"])
 
 
 def load_tssb_datasets(names=None):
@@ -94,3 +121,26 @@ def create_state_labels(cps, labels, ts_len):
         seg_labels[seg_start:seg_end] = labels[idx - 1]
 
     return seg_labels
+
+
+def create_sliding_window(time_series, window_size):
+    shape = time_series.shape[:-1] + (time_series.shape[-1] - window_size + 1, window_size)
+    strides = time_series.strides + (time_series.strides[-1],)
+    return np.lib.stride_tricks.as_strided(time_series, shape=shape, strides=strides)
+
+
+class AeonTransformerWrapper(BaseEstimator, TransformerMixin):
+
+    def __init__(self, estimator):
+        self.estimator = estimator
+
+    def fit(self, X, y=None):
+        df = pd.DataFrame()
+        df['dim_0'] = [pd.Series(ts) for ts in X]
+        self.estimator.fit(df, y)
+        return self
+
+    def transform(self, X):
+        df = pd.DataFrame()
+        df['dim_0'] = [pd.Series(ts) for ts in X]
+        return self.estimator.transform(df).to_numpy()

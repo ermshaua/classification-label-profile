@@ -1,4 +1,3 @@
-import itertools
 import os
 import warnings
 from queue import PriorityQueue
@@ -7,9 +6,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from sklearn.exceptions import NotFittedError
-from sklearn.metrics import confusion_matrix, f1_score
 
-from claspy.clasp import ClaSPEnsemble
+from src.clasp import ClaSPEnsemble
 from claspy.utils import check_input_time_series, check_excl_radius
 from claspy.window_size import map_window_size_methods
 from src.utils import create_state_labels
@@ -34,7 +32,7 @@ def cross_val_multilabels(offsets, cps, labels, window_size):
 
     for idx, split_idx in enumerate(cps):
         exclusion_zone = np.arange(split_idx - window_size, split_idx)
-        y_pred[exclusion_zone] = labels[idx+1]
+        y_pred[exclusion_zone] = labels[idx + 1]
 
     return y_true, y_pred
 
@@ -176,7 +174,7 @@ class BinaryClaSPSegmentation:
             excl_radius=self.excl_radius,
             n_jobs=self.n_jobs,
             random_state=self.random_state
-        ).fit(self.time_series[lbound:ubound], validation=self.validation, threshold=self.threshold)
+        ).fit(self.time_series[lbound:ubound]) # validation=self.validation, threshold=self.threshold
 
         cp = clasp.split(validation=self.validation, threshold=self.threshold)
         if cp is None: return
@@ -265,7 +263,7 @@ class BinaryClaSPSegmentation:
                 excl_radius=self.excl_radius,
                 n_jobs=self.n_jobs,
                 random_state=self.random_state
-            ).fit(time_series, validation=self.validation, threshold=self.threshold)
+            ).fit(time_series) # validation=self.validation, threshold=self.threshold
 
             cp = clasp.split(validation=self.validation, threshold=self.threshold)
 

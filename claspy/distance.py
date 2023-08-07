@@ -51,7 +51,7 @@ def sliding_mean_std(time_series, window_size):
     movstd = np.sqrt(np.clip(segSumSq / window_size - (segSum / window_size) ** 2, 0, None))
     movstd = np.where(np.abs(movstd) < 1e-3, 1, movstd)
 
-    return [movmean, movstd]
+    return movmean, movstd
 
 
 @njit(fastmath=True, cache=True)
@@ -137,9 +137,25 @@ def euclidean_distance(idx, dot, window_size, csumsq, squared=True):
     return np.sqrt(dist)
 
 
+@njit(fastmath=True, cache=True)
+def combined_distance(idx, dot, window_size, preprocessing, squared=True):
+    means, stds = preprocessing
+
+    znorm = 2 * window_size * (1 - (dot - window_size * means * means[idx]) / (window_size * stds * stds[idx]))
+
+    mean_norm = (means[idx] - means)
+    std_norm = (stds[idx] - stds)
+
+    dist = np.square(mean_norm) + np.square(std_norm) + znorm
+
+    if squared is True: return dist
+    return np.sqrt(dist)
+
+
 _DISTANCE_MAPPING = {
     "znormed_euclidean_distance": (sliding_mean_std, znormed_euclidean_distance),
     "euclidean_distance": (sliding_csum, euclidean_distance),
+    "combined": (sliding_mean_std, combined_distance)
 }
 
 

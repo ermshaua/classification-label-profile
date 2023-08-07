@@ -80,6 +80,9 @@ class CLaP:
         check_input_time_series(time_series)
         # todo: check change points and labels
 
+        self.time_series = time_series
+        self.change_points = change_points
+
         if isinstance(self.window_size, str):
             self.window_size = max(1, map_window_size_methods(self.window_size)(time_series) // 2)
 
@@ -124,3 +127,46 @@ class CLaP:
 
         self.is_fitted = True
         return self
+
+    def score(self):
+        y_true, y_pred = cross_val_multilabels(
+            self.knn.offsets,
+            self.change_points,
+            self.labels,
+            self.window_size
+        )
+
+        unique_labels = np.unique(self.labels)
+
+        score = 0
+
+        for label in unique_labels:
+            pos_size = np.sum(y_true == label)
+            tp_size = np.sum(np.logical_and(y_true == label, y_pred == label))
+
+            prior = pos_size / y_true.shape[0]
+            posterior = tp_size / pos_size
+
+            score += posterior - prior
+
+        return score / unique_labels.shape[0]
+
+    def get_segment_labels(self):
+        labels = [self.labels[0]]
+
+        for idx in np.arange(1, self.labels.shape[0]):
+            if labels[-1] != self.labels[idx]:
+                labels.append(self.labels[idx])
+
+        return np.asarray(labels)
+
+    def get_change_points(self):
+        labels = [self.labels[0]]
+        change_points = []
+
+        for idx in np.arange(1, self.labels.shape[0]):
+            if labels[-1] != self.labels[idx]:
+                labels.append(self.labels[idx])
+                change_points.append(self.change_points[idx-1])
+
+        return np.asarray(change_points)

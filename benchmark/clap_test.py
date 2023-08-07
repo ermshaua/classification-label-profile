@@ -19,12 +19,23 @@ if __name__ == '__main__':
     df = list()
 
     for _, (dataset, w, cps, labels, ts) in load_tssb_datasets().iterrows():
-        clasp = BinaryClaSPSegmentation()
+        clasp = BinaryClaSPSegmentation() # distance="combined"
         found_cps = clasp.fit_predict(ts)
-        # pred_labels = clasp.labels
 
-        clap = CLaP()
-        pred_labels = clap.fit(ts, found_cps).labels
+        clap = CLaP(
+            window_size=clasp.window_size,
+            k_neighbours=clasp.k_neighbours,
+            distance=clasp.distance,
+        )
+
+        if len(clasp.clasp_tree) > 0:
+            knn = clasp.clasp_tree[0][1].knn
+        else:
+            knn = None
+
+        clap.fit(ts, found_cps, knn=knn)
+
+        _, pred_labels = clap.get_change_points(), clap.get_segment_labels()
 
         true_seg_labels = create_state_labels(cps, labels, ts.shape[0])
         pred_seg_labels = create_state_labels(found_cps, pred_labels, ts.shape[0]) #
