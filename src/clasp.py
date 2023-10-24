@@ -9,7 +9,7 @@ from claspy.nearest_neighbour import cross_val_labels
 from claspy.scoring import map_scores
 from claspy.utils import check_input_time_series, check_excl_radius
 from claspy.validation import map_validation_tests
-from src.convergent_neighbour import KConvergentSubsequenceNeighbours
+from src.contractable_neighbour import KContractableSubsequenceNeighbours
 
 
 @njit(fastmath=True, cache=False)
@@ -66,7 +66,7 @@ class ClaSP:
         self.time_series = time_series
 
         if knn is None:
-            self.knn = KConvergentSubsequenceNeighbours(
+            self.knn = KContractableSubsequenceNeighbours(
                 window_size=self.window_size,
                 n_references=self.n_references,
                 k_neighbours=self.k_neighbours,
@@ -151,7 +151,7 @@ class ClaSPEnsemble(ClaSP):
         tcs = self._calculate_temporal_constraints()
 
         if knn is None:
-            knn = KConvergentSubsequenceNeighbours(
+            knn = KContractableSubsequenceNeighbours(
                 window_size=self.window_size,
                 k_neighbours=self.k_neighbours,
                 distance=self.distance,

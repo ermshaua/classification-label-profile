@@ -1,3 +1,4 @@
+import itertools
 import os
 import warnings
 from queue import PriorityQueue
@@ -6,10 +7,36 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from sklearn.exceptions import NotFittedError
+from sklearn.metrics import confusion_matrix, f1_score
 
-from claspy.clasp import ClaSPEnsemble
+from src.reg_clasp import ClaSP
 from claspy.utils import check_input_time_series, check_excl_radius
 from claspy.window_size import map_window_size_methods
+from src.utils import create_state_labels
+
+
+def cross_val_multilabels(offsets, cps, labels, window_size):
+    n_timepoints, k_neighbours = offsets.shape
+
+    y_true = create_state_labels(cps, labels, n_timepoints)
+    knn_labels = np.zeros(shape=(k_neighbours, n_timepoints), dtype=np.int64)
+
+    for i_neighbor in range(k_neighbours):
+        neighbours = offsets[:, i_neighbor]
+        knn_labels[i_neighbor] = y_true[neighbours]
+
+    y_pred = np.zeros_like(y_true)
+
+    for idx in range(n_timepoints):
+        neigh_labels = knn_labels[:, idx]
+        u_labels, counts = np.unique(neigh_labels, return_counts=True)
+        y_pred[idx] = u_labels[np.argmax(counts)]
+
+    for idx, split_idx in enumerate(cps):
+        exclusion_zone = np.arange(split_idx - window_size, split_idx)
+        y_pred[exclusion_zone] = labels[idx+1]
+
+    return y_true, y_pred
 
 
 class BinaryClaSPSegmentation:
@@ -138,17 +165,13 @@ class BinaryClaSPSegmentation:
         """
         if ubound - lbound < 2 * self.min_seg_size: return
 
-        clasp = ClaSPEnsemble(
-            n_estimators=self.n_estimators,
+        clasp = ClaSP(
             window_size=self.window_size,
-            k_neighbours=self.k_neighbours,
-            distance=self.distance,
             score=self.score,
-            early_stopping=self.early_stopping,
             excl_radius=self.excl_radius,
             n_jobs=self.n_jobs,
             random_state=self.random_state
-        ).fit(self.time_series[lbound:ubound], validation=self.validation, threshold=self.threshold)
+        ).fit(self.time_series[lbound:ubound])
 
         cp = clasp.split(validation=self.validation, threshold=self.threshold)
         if cp is None: return
@@ -219,17 +242,13 @@ class BinaryClaSPSegmentation:
 
         if self.n_segments > 1:
             prange = 0, time_series.shape[0]
-            clasp = ClaSPEnsemble(
-                n_estimators=self.n_estimators,
+            clasp = ClaSP(
                 window_size=self.window_size,
-                k_neighbours=self.k_neighbours,
-                distance=self.distance,
                 score=self.score,
-                early_stopping=self.early_stopping,
                 excl_radius=self.excl_radius,
                 n_jobs=self.n_jobs,
                 random_state=self.random_state
-            ).fit(time_series, validation=self.validation, threshold=self.threshold)
+            ).fit(time_series)
 
             cp = clasp.split(validation=self.validation, threshold=self.threshold)
 

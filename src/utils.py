@@ -123,6 +123,30 @@ def create_state_labels(cps, labels, ts_len):
     return seg_labels
 
 
+def cross_val_knn(offsets, cps, labels, window_size):
+    n_timepoints, k_neighbours = offsets.shape
+
+    y_true = create_state_labels(cps, labels, n_timepoints)
+    knn_labels = np.zeros(shape=(k_neighbours, n_timepoints), dtype=np.int64)
+
+    for i_neighbor in range(k_neighbours):
+        neighbours = offsets[:, i_neighbor]
+        knn_labels[i_neighbor] = y_true[neighbours]
+
+    y_pred = np.zeros_like(y_true)
+
+    for idx in range(n_timepoints):
+        neigh_labels = knn_labels[:, idx]
+        u_labels, counts = np.unique(neigh_labels, return_counts=True)
+        y_pred[idx] = u_labels[np.argmax(counts)]
+
+    for idx, split_idx in enumerate(cps):
+        exclusion_zone = np.arange(split_idx - window_size, split_idx)
+        y_pred[exclusion_zone] = labels[idx + 1]
+
+    return y_true, y_pred
+
+
 def create_sliding_window(time_series, window_size):
     shape = time_series.shape[:-1] + (time_series.shape[-1] - window_size + 1, window_size)
     strides = time_series.strides + (time_series.strides[-1],)

@@ -151,7 +151,7 @@ def _parallel_knn(time_series, ref_ts, ref_points, ref_val, window_size, k_neigh
     return dists, knns
 
 
-class KConvergentSubsequenceNeighbours:
+class KContractableSubsequenceNeighbours:
 
     def __init__(self, window_size=10, n_references=100, k_neighbours=3, distance="znormed_euclidean_distance",
                  n_jobs=-1):
@@ -220,7 +220,7 @@ class KConvergentSubsequenceNeighbours:
         offsets = self.offsets[lbound:ubound - self.window_size + 1,
                   tc_idx * self.k_neighbours:(tc_idx + 1) * self.k_neighbours] - lbound
 
-        knn = KConvergentSubsequenceNeighbours(
+        knn = KContractableSubsequenceNeighbours(
             window_size=self.window_size,
             n_references=self.n_references,
             k_neighbours=self.k_neighbours,
