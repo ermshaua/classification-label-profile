@@ -1,5 +1,10 @@
+import hashlib
+
 import numpy as np
 from aeon.classification.convolution_based import RocketClassifier
+from aeon.classification.dictionary_based import WEASEL_V2
+from aeon.classification.shapelet_based._rdst import RDSTClassifier
+from scipy.stats import ranksums
 from sklearn.exceptions import NotFittedError
 from sklearn.metrics import confusion_matrix, f1_score
 from sklearn.model_selection import KFold
@@ -12,8 +17,9 @@ from src.utils import create_state_labels
 
 class CLaP:
 
-    def __init__(self, window_size="suss", n_splits=3, n_jobs=1, random_state=2357):
+    def __init__(self, window_size="suss", classifier="rocket", n_splits=5, n_jobs=1, random_state=2357):
         self.window_size = window_size
+        self.classifier = classifier
         self.n_jobs = n_jobs
         self.random_state = random_state
         self.n_splits = n_splits
@@ -35,24 +41,28 @@ class CLaP:
         if not self.is_fitted:
             raise NotFittedError("CLaP object is not fitted yet. Please fit the object before using this method.")
 
-    def create_dataset(self, time_series, change_points, labels, sample_size=None, stride=None):
-        if sample_size is None:
-            sample_size = 2 * self.window_size
-
-        if stride is None:
-            stride = sample_size // 2
+    def _create_dataset(self, time_series, change_points, labels):
+        sample_size = 3 * self.window_size
+        stride = sample_size // 2
 
         state_labels = create_state_labels(change_points, labels, time_series.shape[0])
 
         X, y = [], []
 
+        excl_zone = np.full(time_series.shape[0], fill_value=False, dtype=np.bool)
+
+        # Currently reducing performance
+        for cp in change_points:
+            excl_zone[cp-sample_size+1:cp] = True
+
         for idx in range(0, time_series.shape[0] - sample_size + 1, stride):
-            X.append([time_series[idx:idx + sample_size]])
-            y.append(state_labels[idx])
+            if not excl_zone[idx]:
+                X.append([time_series[idx:idx + sample_size]])
+                y.append(state_labels[idx])
 
         return np.array(X, dtype=np.float64), np.array(y, dtype=np.int64)
 
-    def cross_val_classifier(self, X, y):
+    def _cross_val_classifier(self, X, y):
         y_true = np.zeros_like(y)
         y_pred = np.zeros_like(y)
 
@@ -60,13 +70,21 @@ class CLaP:
             X_train, y_train = X[train_idx], y[train_idx]
             X_test, y_test = X[test_idx], y[test_idx]
 
-            rocket = RocketClassifier(random_state=self.random_state, n_jobs=self.n_jobs)
+            if self.classifier == "rocket":
+                clf = RocketClassifier(random_state=self.random_state, n_jobs=self.n_jobs)
+            elif self.classifier == "weasel":
+                clf = WEASEL_V2(random_state=self.random_state, n_jobs=self.n_jobs)
+            elif self.classifier == "rdst":
+                clf = RDSTClassifier(random_state=self.random_state, n_jobs=self.n_jobs)
+            else:
+                raise ValueError(f"The classifier {self.classifier} is not supported.")
+
             y_true[test_idx] = y_test
-            y_pred[test_idx] = rocket.fit(X_train, y_train).predict(X_test)
+            y_pred[test_idx] = clf.fit(X_train, y_train).predict(X_test)
 
         return y_true, y_pred
 
-    def cross_val_knn(self, time_series, y):
+    def _cross_val_knn(self, time_series, y):
         knn = KSubsequenceNeighbours(
             window_size=self.window_size
         ).fit(time_series)
@@ -92,12 +110,13 @@ class CLaP:
             [y[idx] for idx in range(y_true.shape[0] - 1) if y_true[idx] != y_true[idx + 1]] + [y_true[-1]])
 
         for idx, split_idx in enumerate(cps):
-            exclusion_zone = np.arange(split_idx - self.window_size, split_idx)
+            exclusion_zone = np.arange(split_idx - self.window_size, split_idx) #  + 1
             y_pred[exclusion_zone] = labels[idx + 1]
 
         return y_true, y_pred
 
     def fit(self, time_series, change_points, labels=None):
+        np.random.seed(self.random_state)
         check_input_time_series(time_series)
         # todo: check change points and labels
 
@@ -110,13 +129,15 @@ class CLaP:
         if labels is None:
             labels = np.arange(change_points.shape[0] + 1)
 
-        X, y = self.create_dataset(time_series, change_points, labels)
+        X, y = self._create_dataset(time_series, change_points, labels)
         # y = create_state_labels(change_points, labels, time_series.shape[0])
         merged = True
 
+        ignore_cache = set()
+
         while merged and np.unique(labels).shape[0] > 1:
             unique_labels = np.unique(labels)
-            y_true, y_pred = self.cross_val_classifier(X, y)
+            y_true, y_pred = self._cross_val_classifier(X, y)
             # y_true, y_pred = self.cross_val_knn(time_series, y)
 
             conf_matrix = confusion_matrix(y_true, y_pred)
@@ -139,6 +160,9 @@ class CLaP:
                 if merge_label1 not in labels or merge_label2 not in labels:
                     continue
 
+                if merge_label1 == merge_label2:
+                    continue
+
                 # order merge labels (ascending)
                 if merge_label2 < merge_label1:
                     tmp = merge_label1
@@ -146,13 +170,29 @@ class CLaP:
                     merge_label2 = tmp
 
                 test_idx = np.logical_or(y == merge_label1, y == merge_label2)
+                test_idx_hash = hashlib.sha256(test_idx.tobytes()).hexdigest()
 
-                y_true, y_pred = self.cross_val_classifier(X[test_idx], y[test_idx])
+                if test_idx_hash in ignore_cache:
+                    continue
+
+                y_true, y_pred = self._cross_val_classifier(X[test_idx], y[test_idx])
                 # y_true, y_pred = self.cross_val_knn(time_series[test_idx], y[test_idx])
-                score = f1_score(y_true, y_pred, average="macro")
+                # score = f1_score(y_true, y_pred, average="macro")
 
-                if score > .75: continue
-                # TODO: ranksums(y_pred[:change_point], y_pred[change_point:])
+                # if score > .75: continue
+                alpha = 1e-15
+                sample_size = 1_000
+
+                x1, x2 = y_pred[y_true == merge_label1], y_pred[y_true == merge_label2]
+
+                x1 = x1[np.random.choice(x1.shape[0], sample_size // 2, replace=True)]
+                x2 = x2[np.random.choice(x2.shape[0], sample_size // 2, replace=True)]
+
+                _, p = ranksums(x1, x2)
+
+                if p < alpha:
+                    ignore_cache.add(test_idx_hash)
+                    continue
 
                 labels[labels == merge_label2] = merge_label1
                 y[y == merge_label2] = merge_label1
