@@ -147,11 +147,23 @@ def cross_val_knn(offsets, cps, labels, window_size):
     return y_true, y_pred
 
 
-def create_sliding_window(time_series, window_size):
-    shape = time_series.shape[:-1] + (time_series.shape[-1] - window_size + 1, window_size)
-    strides = time_series.strides + (time_series.strides[-1],)
-    return np.lib.stride_tricks.as_strided(time_series, shape=shape, strides=strides)
+def create_sliding_window(time_series, window_size, stride=1):
+    X = []
 
+    for idx in range(0, time_series.shape[0], stride):
+        if idx+window_size <= time_series.shape[0]:
+            X.append(time_series[idx:idx + window_size])
+
+    return np.array(X, dtype=time_series.dtype)
+
+
+def expand_label_sequence(labels, window_size, stride):
+    X = []
+
+    for label in labels:
+        X.extend([label] * (window_size - (window_size - stride)))
+
+    return np.array(X, dtype=labels.dtype)
 
 class AeonTransformerWrapper(BaseEstimator, TransformerMixin):
 
