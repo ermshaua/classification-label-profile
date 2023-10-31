@@ -1,6 +1,8 @@
 import logging
 import sys
 
+from src.competitor.time2feat import feature_extraction, feature_selection, ClusterWrapper
+
 sys.path.insert(0, "../")
 
 import pandas as pd
@@ -15,32 +17,6 @@ from sklearn.metrics import adjusted_rand_score
 import numpy as np
 
 np.random.seed(1379)
-
-DATASETS = [
-    "Car",
-    "ChlorineConcentration",
-    "CinCECGTorso",
-    "DistalPhalanxTW",
-    "EOGHorizontalSignal",
-    "EOGVerticalSignal",
-    "FiftyWords",
-    "Fish",
-    "Haptics",
-    "InlineSkate",
-    "LargeKitchenAppliances",
-    "Lightning2",
-    "Lightning7",
-    "MedicalImages",
-    "MiddlePhalanxOutlineAgeGroup",
-    "MiddlePhalanxOutlineCorrect",
-    "OSULeaf",
-    "ProximalPhalanxOutlineCorrect",
-    "ProximalPhalanxTW",
-    "SonyAIBORobotSurface1",
-    "Symbols",
-    "UWaveGestureLibraryY",
-    "UWaveGestureLibraryZ",
-]
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
@@ -60,17 +36,34 @@ if __name__ == '__main__':
     # clap = CLaP()
     # clap.fit(ts, found_cps)
 
-    from tslearn.clustering import KShape
+    # as in CLaP
+    sample_size = 2 * w
+    stride = sample_size // 2
 
-    clf = KShape(n_clusters=np.unique(labels).shape[0], max_iter=100)
-    pred = clf.fit_predict(create_sliding_window(ts, 3*w, 2*w))
-    pred_seg_labels = expand_label_sequence(pred, 3*w, 2*w)
+    windows = create_sliding_window(ts, sample_size, stride)[:10]
+    # Time2Feat expects multivariate time series
+    windows = np.array([np.array([w]) for w in windows])
 
-    found_cps = np.arange(pred_seg_labels.shape[0] - 1)[pred_seg_labels[:-1] != pred_seg_labels[1:]] + 1
+    # model params
+    transform_type = 'minmax'
+    model_type = 'Hierarchical'
+    context = {'model_type': model_type, 'transform_type': transform_type}
+
+    try:
+        df_features = feature_extraction(windows, batch_size=500)
+        top_features = feature_selection(df_features, None, context)
+        df_features = df_features[top_features]
+        model = ClusterWrapper(n_clusters=np.unique(labels).shape[0], model_type=model_type,
+                               transform_type=transform_type)
+        pred = model.fit_predict(df_features.values)
+    except Exception as e:
+        print(f"Exception: {e}; using only zero class.")
+        pred = np.zeros(shape=windows.shape[0], dtype=np.int64)
 
     # found_cps = clap.get_change_points()
     # found_labels = clap.get_segment_labels()
 
+    pred_seg_labels = expand_label_sequence(pred, sample_size, stride)
     true_seg_labels = create_state_labels(cps, labels, pred_seg_labels.shape[0])
     # pred_seg_labels = create_state_labels(found_cps, found_labels, ts.shape[0])
 

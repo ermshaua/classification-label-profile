@@ -6,7 +6,7 @@ sys.path.insert(0, "../")
 
 from src.competitor.ticc import TICC
 
-from sklearn.metrics import adjusted_rand_score
+from sklearn.metrics import adjusted_mutual_info_score
 
 from src.competitor.time2state import CausalConv_LSE_Adaper, DPGMM, params_LSE, Time2State, normalize
 
@@ -51,10 +51,10 @@ def evaluate_clap(dataset, w, cps, labels, ts, **seg_kwargs):
 
     f1_score = np.round(f_measure({0: cps}, found_cps, margin=int(ts.shape[0] * .01)), 3)
     covering_score = np.round(covering({0: cps}, found_cps, ts.shape[0]), 3)
-    ars = np.round(adjusted_rand_score(true_seg_labels, pred_seg_labels), 3)
+    ami = np.round(adjusted_mutual_info_score(true_seg_labels, pred_seg_labels), 3)
 
-    print(f"{dataset}: F1-Score: {f1_score}, Covering: {covering_score}, ARS: {ars}")
-    return dataset, cps.tolist(), found_cps.tolist(), pred_seg_labels, f1_score, covering_score, ars
+    print(f"{dataset}: F1-Score: {f1_score}, Covering: {covering_score}, AMI: {ami}")
+    return dataset, cps.tolist(), found_cps.tolist(), pred_seg_labels, f1_score, covering_score, ami
 
 
 def evaluate_time2state(dataset, w, cps, labels, ts, **seg_kwargs):
@@ -80,10 +80,10 @@ def evaluate_time2state(dataset, w, cps, labels, ts, **seg_kwargs):
 
     f1_score = np.round(f_measure({0: cps}, found_cps, margin=int(ts.shape[0] * .01)), 3)
     covering_score = np.round(covering({0: cps}, found_cps, ts.shape[0]), 3)
-    ars = np.round(adjusted_rand_score(true_seg_labels, pred_seg_labels), 3)
+    ami = np.round(adjusted_mutual_info_score(true_seg_labels, pred_seg_labels), 3)
 
-    print(f"{dataset}: F1-Score: {f1_score}, Covering: {covering_score}, ARS: {ars}")
-    return dataset, cps.tolist(), found_cps.tolist(), pred_seg_labels, f1_score, covering_score, ars
+    print(f"{dataset}: F1-Score: {f1_score}, Covering: {covering_score}, AMI: {ami}")
+    return dataset, cps.tolist(), found_cps.tolist(), pred_seg_labels, f1_score, covering_score, ami
 
 
 def evaluate_ticc(dataset, w, cps, labels, ts, **seg_kwargs):
@@ -109,17 +109,17 @@ def evaluate_ticc(dataset, w, cps, labels, ts, **seg_kwargs):
 
     f1_score = np.round(f_measure({0: cps}, found_cps, margin=int(ts.shape[0] * .01)), 3)
     covering_score = np.round(covering({0: cps}, found_cps, ts.shape[0]), 3)
-    ars = np.round(adjusted_rand_score(true_seg_labels, pred_seg_labels), 3)
+    ami = np.round(adjusted_mutual_info_score(true_seg_labels, pred_seg_labels), 3)
 
-    print(f"{dataset}: F1-Score: {f1_score}, Covering: {covering_score}, ARS: {ars}")
-    return dataset, cps.tolist(), found_cps.tolist(), pred_seg_labels, f1_score, covering_score, ars
+    print(f"{dataset}: F1-Score: {f1_score}, Covering: {covering_score}, AMI: {ami}")
+    return dataset, cps.tolist(), found_cps.tolist(), pred_seg_labels, f1_score, covering_score, ami
 
 
 def evaluate_candidate(dataset_name, candidate_name, eval_func, columns=None, n_jobs=1, verbose=0, **seg_kwargs):
     if dataset_name != "TSSB":
         raise ValueError("Only TSSB dataset implemented.")
 
-    df = load_tssb_datasets()  # names=REOCCURING_SEGMENTS
+    df = load_tssb_datasets() # names=REOCCURING_SEGMENTS
 
     df_cand = dp.map(
         lambda _, args: eval_func(*args, **seg_kwargs),
@@ -130,7 +130,7 @@ def evaluate_candidate(dataset_name, candidate_name, eval_func, columns=None, n_
     )
 
     if columns is None:
-        columns = ["dataset", "true_cps", "found_cps", "found_labels", "f1_score", "covering_score", "ars"]
+        columns = ["dataset", "true_cps", "found_cps", "found_labels", "f1_score", "covering_score", "ami"]
 
     df_cand = pd.DataFrame.from_records(
         df_cand,
@@ -139,7 +139,7 @@ def evaluate_candidate(dataset_name, candidate_name, eval_func, columns=None, n_
     )
 
     print(
-        f"{candidate_name}: mean_f1_score={np.round(df_cand.f1_score.mean(), 3)}, mean_covering_score={np.round(df_cand.covering_score.mean(), 3)}, mean_ars_score={np.round(df_cand.ars.mean(), 3)}")
+        f"{candidate_name}: mean_f1_score={np.round(df_cand.f1_score.mean(), 3)}, mean_covering_score={np.round(df_cand.covering_score.mean(), 3)}, mean_ami_score={np.round(df_cand.ami.mean(), 3)}")
     return df_cand
 
 
@@ -150,8 +150,8 @@ def evaluate_competitor(dataset_name, exp_path, n_jobs, verbose):
     os.mkdir(exp_path)
 
     competitors = [
-        # ("CLaP", evaluate_clap),
-        ("Time2State", evaluate_time2state),
+        ("CLaP", evaluate_clap),
+        # ("Time2State", evaluate_time2state),
         # ("TICC", evaluate_ticc)
     ]
 
