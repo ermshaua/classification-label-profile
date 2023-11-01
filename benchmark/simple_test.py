@@ -1,6 +1,8 @@
 import logging
 import sys
 
+from src.competitor.autoplait import autoplait
+from src.competitor.hdp_hsmm import HDP_HSMM
 from src.competitor.time2feat import feature_extraction, feature_selection, ClusterWrapper
 
 sys.path.insert(0, "../")
@@ -31,41 +33,20 @@ if __name__ == '__main__':
         converters=converters
     )[["dataset", "found_cps"]]
 
-    found_cps = seg_df.loc[seg_df["dataset"] == dataset].iloc[0].found_cps
-
-    # clap = CLaP()
-    # clap.fit(ts, found_cps)
-
-    # as in CLaP
-    sample_size = 2 * w
-    stride = sample_size // 2
-
-    windows = create_sliding_window(ts, sample_size, stride)[:10]
-    # Time2Feat expects multivariate time series
-    windows = np.array([np.array([w]) for w in windows])
-
-    # model params
-    transform_type = 'minmax'
-    model_type = 'Hierarchical'
-    context = {'model_type': model_type, 'transform_type': transform_type}
+    data = np.array([ts]).reshape(-1, 1)
+    true_seg_labels = create_state_labels(cps, labels, ts.shape[0])
 
     try:
-        df_features = feature_extraction(windows, batch_size=500)
-        top_features = feature_selection(df_features, None, context)
-        df_features = df_features[top_features]
-        model = ClusterWrapper(n_clusters=np.unique(labels).shape[0], model_type=model_type,
-                               transform_type=transform_type)
-        pred = model.fit_predict(df_features.values)
-    except Exception as e:
+        hdp = HDP_HSMM(alpha=1e4, beta=20, n_iter=20)
+        pred_seg_labels = hdp.fit_transform(data)
+    except ValueError as e:
         print(f"Exception: {e}; using only zero class.")
-        pred = np.zeros(shape=windows.shape[0], dtype=np.int64)
+        pred_seg_labels = np.zeros_like(true_seg_labels)
+
+    found_cps = np.arange(pred_seg_labels.shape[0] - 1)[pred_seg_labels[:-1] != pred_seg_labels[1:]] + 1
 
     # found_cps = clap.get_change_points()
     # found_labels = clap.get_segment_labels()
-
-    pred_seg_labels = expand_label_sequence(pred, sample_size, stride)
-    true_seg_labels = create_state_labels(cps, labels, pred_seg_labels.shape[0])
-    # pred_seg_labels = create_state_labels(found_cps, found_labels, ts.shape[0])
 
     f1_score = np.round(f_measure({0: cps}, found_cps, margin=int(ts.shape[0] * .01)), 3)
     covering_score = np.round(covering({0: cps}, found_cps, ts.shape[0]), 3)

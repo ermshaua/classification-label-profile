@@ -11,3 +11,5 @@ tslearn~=0.6.2
 tsfresh~=0.20.1
 tqdm~=4.65.0
 h5py~=3.10.0
+pybasicbayes~=0.2.4
+pyhsmm~=0.1.6
