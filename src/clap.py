@@ -1,4 +1,5 @@
 import hashlib
+import warnings
 
 import numpy as np
 from aeon.classification.convolution_based import RocketClassifier
@@ -68,7 +69,7 @@ class CLaP:
         y_true = np.zeros_like(y)
         y_pred = np.zeros_like(y)
 
-        for train_idx, test_idx in KFold(n_splits=self.n_splits, shuffle=True, random_state=self.random_state).split(X):
+        for train_idx, test_idx in KFold(n_splits=min(X.shape[0], self.n_splits), shuffle=True, random_state=self.random_state).split(X):
             X_train, y_train = X[train_idx], y[train_idx]
             X_test, y_test = X[test_idx], y[test_idx]
 

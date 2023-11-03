@@ -17,11 +17,23 @@ def load_datasets(dataset, selection=None):
     with open(desc_filename, 'r') as file:
         for line in file.readlines(): desc_file.append(line.split(","))
 
+    prop_filename = ABS_PATH + f"/../datasets/{dataset}/properties.txt"
+    prop_file = []
+
+    with open(prop_filename, 'r') as file:
+        for line in file.readlines(): prop_file.append(line.split(","))
+
+    assert len(desc_file) == len(prop_file), "Description and property file have different records."
+
     df = []
 
-    for idx, row in enumerate(desc_file):
+    for idx, (desc_row, prop_row) in enumerate(zip(desc_file, prop_file)):
         if selection is not None and idx not in selection: continue
-        (ts_name, window_size), change_points = row[:2], row[2:]
+        assert desc_row[0] == prop_row[0], f"Description and property row {idx} have different records."
+
+        (ts_name, window_size), change_points = desc_row[:2], desc_row[2:]
+        labels = prop_row[1:]
+
         if len(change_points) == 1 and change_points[0] == "\n": change_points = list()
         path = ABS_PATH + f'/../datasets/{dataset}/'
 
@@ -30,9 +42,9 @@ def load_datasets(dataset, selection=None):
         else:
             ts = np.load(file=path + "data.npz")[ts_name]
 
-        df.append((ts_name, int(window_size), np.array([int(_) for _ in change_points]), ts))
+        df.append((ts_name, int(window_size), np.array([int(_) for _ in change_points]), np.array([int(_) for _ in labels]), ts))
 
-    return pd.DataFrame.from_records(df, columns=["name", "window_size", "change_points", "time_series"])
+    return pd.DataFrame.from_records(df, columns=["name", "window_size", "change_points", "labels", "time_series"])
 
 
 def load_tssb_datasets(names=None):

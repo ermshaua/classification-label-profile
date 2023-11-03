@@ -1,6 +1,8 @@
 import logging
 import sys
 
+from aeon.annotation.ggs import GreedyGaussianSegmentation
+
 from src.competitor.autoplait import autoplait
 from src.competitor.hdp_hsmm import HDP_HSMM
 from src.competitor.time2feat import feature_extraction, feature_selection, ClusterWrapper
@@ -34,14 +36,11 @@ if __name__ == '__main__':
     )[["dataset", "found_cps"]]
 
     data = np.array([ts]).reshape(-1, 1)
-    true_seg_labels = create_state_labels(cps, labels, ts.shape[0])
 
-    try:
-        hdp = HDP_HSMM(alpha=1e4, beta=20, n_iter=20)
-        pred_seg_labels = hdp.fit_transform(data)
-    except ValueError as e:
-        print(f"Exception: {e}; using only zero class.")
-        pred_seg_labels = np.zeros_like(true_seg_labels)
+    ggs = GreedyGaussianSegmentation(k_max=len(cps))
+    pred_seg_labels = ggs.fit_predict(data)
+
+    true_seg_labels = create_state_labels(cps, labels, ts.shape[0])
 
     found_cps = np.arange(pred_seg_labels.shape[0] - 1)[pred_seg_labels[:-1] != pred_seg_labels[1:]] + 1
 

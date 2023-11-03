@@ -13,3 +13,6 @@ tqdm~=4.65.0
 h5py~=3.10.0
 pybasicbayes~=0.2.4
 pyhsmm~=0.1.6
+ruptures~=1.1.8
+claspy~=0.1.9
+bocd~=0.1.2

@@ -1,4 +1,7 @@
 import sys
+
+from aeon.annotation.ggs import GreedyGaussianSegmentation
+
 sys.path.insert(0, "../")
 
 import os
@@ -20,7 +23,7 @@ from tqdm import tqdm
 
 from benchmark.metrics import f_measure, covering
 from src.clap import CLaP
-from src.utils import create_state_labels, load_tssb_datasets
+from src.utils import create_state_labels, load_tssb_datasets, load_datasets
 
 import numpy as np
 
@@ -53,16 +56,11 @@ def evaluate_clap(dataset, w, cps, labels, ts, **seg_kwargs):
     true_seg_labels = create_state_labels(cps, labels, ts.shape[0])
     pred_seg_labels = create_state_labels(found_cps, found_labels, ts.shape[0])
 
-    f1_score = np.round(f_measure({0: cps}, found_cps, margin=int(ts.shape[0] * .01)), 3)
-    covering_score = np.round(covering({0: cps}, found_cps, ts.shape[0]), 3)
-    ami = np.round(adjusted_mutual_info_score(true_seg_labels, pred_seg_labels), 3)
-
-    print(f"{dataset}: F1-Score: {f1_score}, Covering: {covering_score}, AMI: {ami}")
-    return dataset, cps.tolist(), found_cps.tolist(), pred_seg_labels, f1_score, covering_score, ami
+    return evaluate_state_detection_algorithm(dataset, ts.shape[0], cps, found_cps, true_seg_labels, pred_seg_labels)
 
 
 def evaluate_time2state(dataset, w, cps, labels, ts, **seg_kwargs):
-    window_size, step = 256, 10
+    window_size, step = 256, 50
     params_LSE['in_channels'] = 1
     params_LSE['out_channels'] = 2
     # params_LSE['compared_length'] = window_size
@@ -81,13 +79,7 @@ def evaluate_time2state(dataset, w, cps, labels, ts, **seg_kwargs):
         pred_seg_labels = np.zeros_like(true_seg_labels)
 
     found_cps = np.arange(pred_seg_labels.shape[0] - 1)[pred_seg_labels[:-1] != pred_seg_labels[1:]] + 1
-
-    f1_score = np.round(f_measure({0: cps}, found_cps, margin=int(ts.shape[0] * .01)), 3)
-    covering_score = np.round(covering({0: cps}, found_cps, ts.shape[0]), 3)
-    ami = np.round(adjusted_mutual_info_score(true_seg_labels, pred_seg_labels), 3)
-
-    print(f"{dataset}: F1-Score: {f1_score}, Covering: {covering_score}, AMI: {ami}")
-    return dataset, cps.tolist(), found_cps.tolist(), pred_seg_labels, f1_score, covering_score, ami
+    return evaluate_state_detection_algorithm(dataset, ts.shape[0], cps, found_cps, true_seg_labels, pred_seg_labels)
 
 
 def evaluate_ticc(dataset, w, cps, labels, ts, **seg_kwargs):
@@ -110,13 +102,7 @@ def evaluate_ticc(dataset, w, cps, labels, ts, **seg_kwargs):
         pred_seg_labels = np.zeros_like(true_seg_labels)
 
     found_cps = np.arange(pred_seg_labels.shape[0] - 1)[pred_seg_labels[:-1] != pred_seg_labels[1:]] + 1
-
-    f1_score = np.round(f_measure({0: cps}, found_cps, margin=int(ts.shape[0] * .01)), 3)
-    covering_score = np.round(covering({0: cps}, found_cps, ts.shape[0]), 3)
-    ami = np.round(adjusted_mutual_info_score(true_seg_labels, pred_seg_labels), 3)
-
-    print(f"{dataset}: F1-Score: {f1_score}, Covering: {covering_score}, AMI: {ami}")
-    return dataset, cps.tolist(), found_cps.tolist(), pred_seg_labels, f1_score, covering_score, ami
+    return evaluate_state_detection_algorithm(dataset, ts.shape[0], cps, found_cps, true_seg_labels, pred_seg_labels)
 
 
 def evaluate_autoplait(dataset, w, cps, labels, ts, **seg_kwargs):
@@ -125,12 +111,7 @@ def evaluate_autoplait(dataset, w, cps, labels, ts, **seg_kwargs):
     pred_seg_labels = create_state_labels(found_cps, found_labels, ts.shape[0])
     true_seg_labels = create_state_labels(cps, labels, ts.shape[0])
 
-    f1_score = np.round(f_measure({0: cps}, found_cps, margin=int(ts.shape[0] * .01)), 3)
-    covering_score = np.round(covering({0: cps}, found_cps, ts.shape[0]), 3)
-    ami = np.round(adjusted_mutual_info_score(true_seg_labels, pred_seg_labels), 3)
-
-    print(f"{dataset}: F1-Score: {f1_score}, Covering: {covering_score}, AMI: {ami}")
-    return dataset, cps.tolist(), found_cps.tolist(), pred_seg_labels, f1_score, covering_score, ami
+    return evaluate_state_detection_algorithm(dataset, ts.shape[0], cps, found_cps, true_seg_labels, pred_seg_labels)
 
 
 def evaluate_hdp_hsmm(dataset, w, cps, labels, ts, **seg_kwargs):
@@ -145,20 +126,34 @@ def evaluate_hdp_hsmm(dataset, w, cps, labels, ts, **seg_kwargs):
         pred_seg_labels = np.zeros_like(true_seg_labels)
 
     found_cps = np.arange(pred_seg_labels.shape[0] - 1)[pred_seg_labels[:-1] != pred_seg_labels[1:]] + 1
+    return evaluate_state_detection_algorithm(dataset, ts.shape[0], cps, found_cps, true_seg_labels, pred_seg_labels)
 
-    f1_score = np.round(f_measure({0: cps}, found_cps, margin=int(ts.shape[0] * .01)), 3)
-    covering_score = np.round(covering({0: cps}, found_cps, ts.shape[0]), 3)
-    ami = np.round(adjusted_mutual_info_score(true_seg_labels, pred_seg_labels), 3)
+
+def evaluate_ggs(dataset, w, cps, labels, ts, **seg_kwargs):
+    data = np.array([ts]).reshape(-1, 1)
+    ggs = GreedyGaussianSegmentation(k_max=len(cps), lamb=32, random_state=1379)
+
+    pred_seg_labels = ggs.fit_predict(data)
+    true_seg_labels = create_state_labels(cps, labels, ts.shape[0])
+
+    found_cps = np.arange(pred_seg_labels.shape[0] - 1)[pred_seg_labels[:-1] != pred_seg_labels[1:]] + 1
+    return evaluate_state_detection_algorithm(dataset, ts.shape[0], cps, found_cps, true_seg_labels, pred_seg_labels)
+
+
+def evaluate_state_detection_algorithm(dataset, n_timestamps, cps_true, cps_pred, labels_true, labels_pred):
+    f1_score = np.round(f_measure({0: cps_true}, cps_pred, margin=int(n_timestamps * .01)), 3)
+    covering_score = np.round(covering({0: cps_true}, cps_pred, n_timestamps), 3)
+    ami = np.round(adjusted_mutual_info_score(labels_true, labels_pred), 3)
 
     print(f"{dataset}: F1-Score: {f1_score}, Covering: {covering_score}, AMI: {ami}")
-    return dataset, cps.tolist(), found_cps.tolist(), pred_seg_labels, f1_score, covering_score, ami
+    return dataset, cps_true.tolist(), cps_pred.tolist(), labels_pred, f1_score, covering_score, ami
 
 
 def evaluate_candidate(dataset_name, candidate_name, eval_func, columns=None, n_jobs=1, verbose=0, **seg_kwargs):
-    if dataset_name != "TSSB":
-        raise ValueError("Only TSSB dataset implemented.")
-
-    df = load_tssb_datasets() # names=REOCCURING_SEGMENTS
+    if dataset_name == "TSSB":
+        df = load_tssb_datasets()  # names=REOCCURING_SEGMENTS
+    else:
+        df = load_datasets(dataset_name)
 
     df_cand = dp.map(
         lambda _, args: eval_func(*args, **seg_kwargs),
@@ -189,11 +184,12 @@ def evaluate_competitor(dataset_name, exp_path, n_jobs, verbose):
     os.mkdir(exp_path)
 
     competitors = [
-        ("CLaP", evaluate_clap),
+        # ("CLaP", evaluate_clap),
         # ("Time2State", evaluate_time2state),
-        # ("TICC", evaluate_ticc)
-        # ("AutoPlait", evaluate_autoplait)
-        # ("HDP-HSMM", evaluate_hdp_hsmm)
+        # ("TICC", evaluate_ticc),
+        # ("AutoPlait", evaluate_autoplait),
+        # ("HDP-HSMM", evaluate_hdp_hsmm),
+        ("GGS", evaluate_ggs)
     ]
 
     # load segmentation for ClaP
