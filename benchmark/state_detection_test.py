@@ -22,8 +22,8 @@ import pandas as pd
 from tqdm import tqdm
 
 from benchmark.metrics import f_measure, covering
-from src.clap import CLaP
-from src.utils import create_state_labels, load_tssb_datasets, load_datasets
+from src.clap import CLaP, MultiCLaP
+from src.utils import create_state_labels, load_tssb_datasets, load_datasets, load_has_datasets
 
 import numpy as np
 
@@ -47,7 +47,7 @@ def evaluate_clap(dataset, w, cps, labels, ts, **seg_kwargs):
     seg_df = seg_kwargs["segmentation"]
     found_cps = seg_df.loc[seg_df["dataset"] == dataset].iloc[0].found_cps
 
-    clap = CLaP()
+    clap = CLaP(n_jobs=6)
     clap.fit(ts, found_cps)
 
     found_cps = clap.get_change_points()
@@ -60,12 +60,15 @@ def evaluate_clap(dataset, w, cps, labels, ts, **seg_kwargs):
 
 
 def evaluate_time2state(dataset, w, cps, labels, ts, **seg_kwargs):
-    window_size, step = 256, 50
-    params_LSE['in_channels'] = 1
-    params_LSE['out_channels'] = 2
+    window_size, step = 256, 10
+    params_LSE['in_channels'] = 1 if ts.ndim == 1 else ts.shape[1]
+    # params_LSE['out_channels'] = 2
     # params_LSE['compared_length'] = window_size
 
-    data = normalize(np.array([ts]).reshape(-1, 1))
+    if ts.ndim == 1:
+        ts = ts.reshape(-1, 1)
+
+    data = normalize(ts)
     true_seg_labels = create_state_labels(cps, labels, ts.shape[0])
 
     try:
@@ -152,6 +155,8 @@ def evaluate_state_detection_algorithm(dataset, n_timestamps, cps_true, cps_pred
 def evaluate_candidate(dataset_name, candidate_name, eval_func, columns=None, n_jobs=1, verbose=0, **seg_kwargs):
     if dataset_name == "TSSB":
         df = load_tssb_datasets()  # names=REOCCURING_SEGMENTS
+    elif dataset_name == "HAS":
+        df = load_has_datasets()
     else:
         df = load_datasets(dataset_name)
 
@@ -178,21 +183,19 @@ def evaluate_candidate(dataset_name, candidate_name, eval_func, columns=None, n_
 
 
 def evaluate_competitor(dataset_name, exp_path, n_jobs, verbose):
-    if os.path.exists(exp_path):
-        shutil.rmtree(exp_path)
-
-    os.mkdir(exp_path)
+    if not os.path.exists(exp_path):
+        os.mkdir(exp_path)
 
     competitors = [
-        # ("CLaP", evaluate_clap),
+        ("CLaP", evaluate_clap),
         # ("Time2State", evaluate_time2state),
         # ("TICC", evaluate_ticc),
         # ("AutoPlait", evaluate_autoplait),
         # ("HDP-HSMM", evaluate_hdp_hsmm),
-        ("GGS", evaluate_ggs)
+        # ("GGS", evaluate_ggs)
     ]
 
-    # load segmentation for ClaP
+    # load segmentation
     segmentation_algorithm = "ClaSP"
     converters = dict([(column, lambda data: np.array(eval(data))) for column in ["found_cps"]])
     seg_df = pd.read_csv(
@@ -218,7 +221,7 @@ def evaluate_competitor(dataset_name, exp_path, n_jobs, verbose):
 
 if __name__ == '__main__':
     exp_path = "../experiments/state_detection/"
-    n_jobs, verbose = 50, 0
+    n_jobs, verbose = 20, 0
 
     if not os.path.exists(exp_path):
         os.mkdir(exp_path)

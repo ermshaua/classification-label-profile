@@ -192,10 +192,8 @@ def evaluate_candidate(dataset_name, candidate_name, eval_func, columns=None, n_
 
 
 def evaluate_competitor(dataset_name, exp_path, n_jobs, verbose):
-    if os.path.exists(exp_path):
-        shutil.rmtree(exp_path)
-
-    os.mkdir(exp_path)
+    if not os.path.exists(exp_path):
+        os.mkdir(exp_path)
 
     competitors = [
         # ("KShape", evaluate_kshape),

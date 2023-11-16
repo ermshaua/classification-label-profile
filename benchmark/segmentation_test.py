@@ -1,12 +1,17 @@
 import os
 import shutil
 import sys
+import warnings
+from ctypes import Union
 
 import stumpy
 from aeon.annotation.ggs import GreedyGaussianSegmentation
 from bocd import BayesianOnlineChangePointDetection, ConstantHazard, StudentT
+from roerich.algorithms import ChangePointDetectionClassifier, ChangePointDetectionRuLSIF
 from ruptures import Binseg, Window, Pelt
+from sklearn.cluster import AgglomerativeClustering
 from stumpy import stump, fluss
+from stumpy.floss import _cac
 
 sys.path.insert(0, "../")
 
@@ -16,25 +21,62 @@ from tqdm import tqdm
 
 from benchmark.metrics import f_measure, covering
 from claspy.segmentation import BinaryClaSPSegmentation
-from src.utils import load_datasets, load_tssb_datasets
-
+from src.utils import load_datasets, load_tssb_datasets, load_has_datasets
 
 import numpy as np
 np.random.seed(1379)
 
 
 def evaluate_clasp(dataset, w, cps, labels, ts, **seg_kwargs):
-    clasp = BinaryClaSPSegmentation()
-    found_cps = clasp.fit_predict(ts)
+    if ts.ndim == 1:
+        clasp = BinaryClaSPSegmentation(n_jobs=1)
+        found_cps = clasp.fit_predict(ts)
+        profile = clasp.profile
+    else:
+        window_sizes, profiles, found_cps, scores, ind = [], [], [], [], []
 
-    return evalute_segmentation_algorithm(dataset, ts.shape[0], cps, found_cps, clasp.profile)
+        for dim in range(ts.shape[1]):
+            clasp = BinaryClaSPSegmentation(n_jobs=1).fit(ts[:,dim])
+
+            window_sizes.append(clasp.window_size)
+            profiles.append(clasp.profile)
+            scores.extend(clasp.scores) # todo: this should be fixed in claspy: np.array(clasp.change_points, dtype=int)
+            found_cps.extend(clasp.change_points)
+            ind.extend([len(window_sizes)-1] * len(clasp.change_points))
+
+        min_len = np.min([len(p) for p in profiles])
+        profile = np.max([p[:min_len] for p in profiles], axis=0)
+
+        found_cps = np.array(found_cps)
+        scores = np.array(scores)
+
+        min_match = int(np.log2(len(profiles)))
+
+        if len(found_cps) >= min_match:
+            clu = AgglomerativeClustering(n_clusters=None, linkage="average", distance_threshold=5 * np.mean(window_sizes))
+            clusters = clu.fit_predict(found_cps.reshape(-1, 1))
+
+            merged_cps = []
+
+            for label in np.unique(clusters):
+                candidates = found_cps[clusters == label]
+                candidate_scores = scores[clusters == label]
+
+                if len(candidates) < min_match: continue
+                merged_cps.append(int(np.mean(candidates)))
+
+            found_cps = np.sort(merged_cps)
+        else:
+            found_cps = np.array([])
+
+    return evalute_segmentation_algorithm(dataset, ts.shape[0], cps, found_cps)
 
 
 def evaluate_binseg(dataset, w, cps, labels, ts, **seg_kwargs):
     # normalize ts to have comparable penalty influence
     ts = (ts - ts.min()) / (ts.max() - ts.min())
 
-    binseg = Binseg(model="ar", min_size=int(ts.shape[0] * 0.05)).fit(ts)
+    binseg = Binseg(model="ar", min_size=5 * w).fit(ts)
     found_cps = np.array(binseg.predict(pen=0.2)[:-1], dtype=np.int64)
 
     return evalute_segmentation_algorithm(dataset, ts.shape[0], cps, found_cps)
@@ -44,7 +86,7 @@ def evaluate_window(dataset, w, cps, labels, ts, **seg_kwargs):
     # normalize ts to have comparable penalty influence
     ts = (ts - ts.min()) / (ts.max() - ts.min())
 
-    binseg = Window(width=10*w, model="ar", min_size=int(ts.shape[0] * 0.05)).fit(ts)
+    binseg = Window(width=10*w, model="ar", min_size=5 * w).fit(ts)
     found_cps = np.array(binseg.predict(pen=0.2)[:-1], dtype=np.int64)
 
     return evalute_segmentation_algorithm(dataset, ts.shape[0], cps, found_cps)
@@ -54,36 +96,60 @@ def evaluate_pelt(dataset, w, cps, labels, ts, **seg_kwargs):
     # normalize ts to have comparable penalty influence
     ts = (ts - ts.min()) / (ts.max() - ts.min())
 
-    binseg = Pelt(model="ar", min_size=int(ts.shape[0] * 0.05)).fit(ts)
+    binseg = Pelt(model="ar", min_size=5 * w).fit(ts)
     found_cps = np.array(binseg.predict(pen=0.2)[:-1], dtype=np.int64)
 
     return evalute_segmentation_algorithm(dataset, ts.shape[0], cps, found_cps)
 
 
 def evaluate_fluss(dataset, w, cps, labels, ts, **seg_kwargs):
-    mp = stump(ts, m=w)
+    if ts.ndim == 1:
+        mp = stump(ts, m=w)
+        cac = _cac(mp[:, 1], L=w)
+    else:
+        C = []
 
-    cac, regime_locations = fluss(mp[:, 1], L=w, n_regimes=len(cps) + 1)
-    found_cps = regime_locations[cac[regime_locations] <= .45]
+        for dim in range(ts.shape[1]):
+            mp = stump(ts[:,dim], m=w)
+            C.append(_cac(mp[:, 1], L=w))
 
-    return evalute_segmentation_algorithm(dataset, ts.shape[0], cps, found_cps, cac)
+        cac = np.mean(C, axis=0)
+
+    threshold = .45
+    found_cps = []
+
+    profile = np.copy(cac)
+
+    while profile.min() <= threshold:
+        cp = np.argmin(profile)
+        found_cps.append(cp)
+        profile[max(0, cp - 5 * w):min(profile.shape[0], cp + 5 * w)] = np.inf
+
+    return evalute_segmentation_algorithm(dataset, ts.shape[0], cps, np.array(found_cps))
 
 
-def evaluate_bocd(dataset, w, cps, labels, ts, **seg_kwargs):
-    # needs normalizing to not run into FloatingPointError
-    ts = (ts - ts.min()) / (ts.max() - ts.min())
+def evaluate_ddre(dataset, w, cps, labels, ts, **seg_kwargs):
+    cpdc = ChangePointDetectionClassifier(base_classifier='logreg', metric='klsym', periods=1, window_size=5 * w)
 
-    bc = BayesianOnlineChangePointDetection(ConstantHazard(100), StudentT())
-    profile = np.empty(ts.shape)
+    try:
+        # fails sometimes
+        _, found_cps = cpdc.predict(ts)
+    except ValueError:
+        found_cps = np.empty(0, dtype=int)
 
-    for idx, timepoint in enumerate(ts):
-        bc.update(timepoint)
-        profile[idx] = bc.rt
+    return evalute_segmentation_algorithm(dataset, ts.shape[0], cps, found_cps)
 
-    diff = np.diff(profile)
-    found_cps = np.where(diff <= -250)[0]
 
-    return evalute_segmentation_algorithm(dataset, ts.shape[0], cps, found_cps, diff)
+def evaluate_rulsif(dataset, w, cps, labels, ts, **seg_kwargs):
+    rulsif = ChangePointDetectionRuLSIF(periods=1, window_size=int(5*w), step=5, n_runs=1)
+
+    try:
+        # fails sometimes
+        _, found_cps = rulsif.predict(ts)
+    except ValueError:
+        found_cps = np.empty(0, dtype=int)
+
+    return evalute_segmentation_algorithm(dataset, ts.shape[0], cps, found_cps)
 
 
 def evalute_segmentation_algorithm(dataset, n_timestamps, cps_true, cps_pred, profile=None):
@@ -100,7 +166,9 @@ def evalute_segmentation_algorithm(dataset, n_timestamps, cps_true, cps_pred, pr
 
 def evaluate_candidate(dataset_name, candidate_name, eval_func, columns=None, n_jobs=1, verbose=0, **seg_kwargs):
     if dataset_name == "TSSB":
-        df = load_tssb_datasets()  # names=REOCCURING_SEGMENTS
+        df = load_tssb_datasets()
+    elif dataset_name == "HAS":
+        df = load_has_datasets()
     else:
         df = load_datasets(dataset_name)
 
@@ -127,33 +195,26 @@ def evaluate_candidate(dataset_name, candidate_name, eval_func, columns=None, n_
 
 
 def evaluate_competitor(dataset_name, exp_path, n_jobs, verbose):
-    if os.path.exists(exp_path):
-        shutil.rmtree(exp_path)
-
-    os.mkdir(exp_path)
+    if not os.path.exists(exp_path):
+        os.mkdir(exp_path)
 
     competitors = [
         ("ClaSP", evaluate_clasp),
-        # ("BinSeg", evaluate_binseg),
-        # ("Window", evaluate_window),
-        # ("Pelt", evaluate_pelt),
-        # ("FLUSS", evaluate_fluss),
-        # ("BOCD", evaluate_bocd)
+        ("BinSeg", evaluate_binseg),
+        ("Window", evaluate_window),
+        ("Pelt", evaluate_pelt),
+        ("FLUSS", evaluate_fluss),
+        ("DDRE", evaluate_ddre),
+        ("RuLSIF", evaluate_rulsif)
     ]
 
     for candidate_name, eval_func in competitors:
         print(f"Evaluating competitor: {candidate_name}")
 
-        columns = None
-
-        if candidate_name in ("ClaSP", "FLUSS", "BOCD"):
-            columns = ["dataset", "true_cps", "found_cps", "f1_score", "covering_score", "profile"]
-
         df = evaluate_candidate(
             dataset_name,
             candidate_name,
             eval_func=eval_func,
-            columns=columns,
             n_jobs=n_jobs,
             verbose=verbose,
         )
@@ -168,4 +229,4 @@ if __name__ == '__main__':
     if not os.path.exists(exp_path):
         os.mkdir(exp_path)
 
-    evaluate_competitor("TSSB", exp_path, n_jobs, verbose)
+    evaluate_competitor("HAS", exp_path, n_jobs, verbose)

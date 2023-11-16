@@ -1,24 +1,23 @@
 import hashlib
-import warnings
 
 import numpy as np
 from aeon.classification.convolution_based import RocketClassifier
 from aeon.classification.dictionary_based import WEASEL_V2
 from aeon.classification.shapelet_based._rdst import RDSTClassifier
+from claspy.nearest_neighbour import KSubsequenceNeighbours
+from claspy.window_size import map_window_size_methods
 from scipy.stats import ranksums
 from sklearn.exceptions import NotFittedError
 from sklearn.metrics import confusion_matrix, f1_score
 from sklearn.model_selection import KFold
 
-from claspy.nearest_neighbour import KSubsequenceNeighbours
-from claspy.utils import check_input_time_series
-from claspy.window_size import map_window_size_methods
 from src.utils import create_state_labels
 
 
 class CLaP:
 
-    def __init__(self, window_size="suss", classifier="rocket", n_splits=5, n_jobs=1, sample_size=1_000, random_state=2357):
+    def __init__(self, window_size="suss", classifier="rocket", n_splits=5, n_jobs=1, sample_size=1_000,
+                 random_state=2357):
         self.window_size = window_size
         self.classifier = classifier
         self.n_splits = n_splits
@@ -52,15 +51,18 @@ class CLaP:
 
         X, y = [], []
 
-        excl_zone = np.full(time_series.shape[0], fill_value=False, dtype=np.bool)
+        excl_zone = np.full(time_series.shape[0], fill_value=False, dtype=bool)
 
         # Currently reducing performance
         for cp in change_points:
-            excl_zone[cp-sample_size+1:cp] = True
+            excl_zone[cp - sample_size + 1:cp] = True
 
         for idx in range(0, time_series.shape[0] - sample_size + 1, stride):
             if not excl_zone[idx]:
-                X.append([time_series[idx:idx + sample_size]])
+                window = time_series[idx:idx + sample_size].T
+                if time_series.shape[1] == 1: window = window.flatten()
+
+                X.append(window)
                 y.append(state_labels[idx])
 
         return np.array(X, dtype=np.float64), np.array(y, dtype=np.int64)
@@ -69,7 +71,12 @@ class CLaP:
         y_true = np.zeros_like(y)
         y_pred = np.zeros_like(y)
 
-        for train_idx, test_idx in KFold(n_splits=min(X.shape[0], self.n_splits), shuffle=True, random_state=self.random_state).split(X):
+        n_splits = min(X.shape[0], self.n_splits)
+
+        if n_splits < 2:
+            return np.copy(y), np.copy([y])
+
+        for train_idx, test_idx in KFold(n_splits=n_splits, shuffle=True, random_state=self.random_state).split(X):
             X_train, y_train = X[train_idx], y[train_idx]
             X_test, y_test = X[test_idx], y[test_idx]
 
@@ -113,21 +120,55 @@ class CLaP:
             [y[idx] for idx in range(y_true.shape[0] - 1) if y_true[idx] != y_true[idx + 1]] + [y_true[-1]])
 
         for idx, split_idx in enumerate(cps):
-            exclusion_zone = np.arange(split_idx - self.window_size, split_idx) #  + 1
+            exclusion_zone = np.arange(split_idx - self.window_size, split_idx)  # + 1
             y_pred[exclusion_zone] = labels[idx + 1]
 
         return y_true, y_pred
 
+    def _subselect_X_y(self, X, y):
+        np.random.seed(self.random_state)
+        labels = np.unique(y)
+
+        X_sel, y_sel = [], []
+
+        for label in labels:
+            args = y == label
+            X_label, y_label = X[args], y[args]
+
+            if X_label.shape[0] > self.sample_size:
+                rand_idx = np.random.choice(np.arange(y.shape[0])[args], self.sample_size, replace=False)
+                X_label, y_label = X[rand_idx], y[rand_idx]
+
+            X_sel.extend(X_label)
+            y_sel.extend(y_label)
+
+        X_sel, y_sel = np.array(X_sel, dtype=float), np.array(y_sel, dtype=int)
+
+        # randomize order
+        args = np.random.choice(X_sel.shape[0], X_sel.shape[0], replace=False)
+        return X_sel[args], y_sel[args]
+
     def fit(self, time_series, change_points, labels=None):
         np.random.seed(self.random_state)
-        check_input_time_series(time_series)
-        # todo: check change points and labels
+        # todo: check ts, change points and labels
+
+        if time_series.ndim == 1:
+            # make ts multi-dimensional
+            time_series = time_series.reshape(-1, 1)
 
         self.time_series = time_series
         self.change_points = change_points
 
+        W = []
+
         if isinstance(self.window_size, str):
-            self.window_size = max(1, map_window_size_methods(self.window_size)(time_series) // 2)
+            for dim in range(time_series.shape[1]):
+                W.append(max(1, map_window_size_methods(self.window_size)(time_series[:, dim]) // 2))
+
+            if len(W) > 0:
+                self.window_size = int(np.mean(W))
+            else:
+                self.window_size = 10
 
         if labels is None:
             labels = np.arange(change_points.shape[0] + 1)
@@ -138,10 +179,11 @@ class CLaP:
 
         ignore_cache = set()
 
+        y_true, y_pred = self._cross_val_classifier(*self._subselect_X_y(X, y))
+        # y_true, y_pred = self.cross_val_knn(time_series, y)
+
         while merged and np.unique(labels).shape[0] > 1:
             unique_labels = np.unique(labels)
-            y_true, y_pred = self._cross_val_classifier(X, y)
-            # y_true, y_pred = self.cross_val_knn(time_series, y)
 
             conf_matrix = confusion_matrix(y_true, y_pred).astype(np.float64)
 
@@ -161,7 +203,7 @@ class CLaP:
 
             merged = False
 
-            # merge confused classes (with descending priority)
+            # merge most confused class (with descending priority)
             for idx in np.argsort(max_confs)[::-1]:
                 merge_label1 = unique_labels[idx]
                 merge_label2 = unique_labels[arg_max_confs[idx]]
@@ -178,22 +220,26 @@ class CLaP:
                     merge_label1 = merge_label2
                     merge_label2 = tmp
 
-                test_idx = np.logical_or(y == merge_label1, y == merge_label2)
+                test_idx = np.logical_or(y_true == merge_label1, y_true == merge_label2)
                 test_idx_hash = hashlib.sha256(test_idx.tobytes()).hexdigest()
 
                 if test_idx_hash in ignore_cache:
                     continue
 
                 # y_true, y_pred = self.cross_val_knn(time_series[test_idx], y[test_idx])
-                y_true, y_pred = self._cross_val_classifier(X[test_idx], y[test_idx])
+                y_binary_true, y_binary_pred = y_true[test_idx], y_pred[test_idx]
 
                 # random classification
-                rand_idx = np.random.choice(y_true.shape[0], y_true.shape[0], replace=False)
+                rand_idx = np.random.choice(y_binary_true.shape[0], y_binary_true.shape[0], replace=False)
                 # y_true, y_pred = self.cross_val_knn(time_series[test_idx], y[test_idx][rand_idx])
-                y_true_rand, y_pred_rand = self._cross_val_classifier(X[test_idx], y[test_idx][rand_idx])
+                y_true_rand, y_pred_rand = y_true[test_idx], y_pred[test_idx][rand_idx]
 
-                x1, x2 = y_pred[y_true == merge_label1], y_pred[y_true == merge_label2]
-                x1_rand, x2_rand = y_pred_rand[y_true == merge_label1], y_pred_rand[y_true == merge_label2]
+                x1, x2 = y_binary_pred[y_binary_true == merge_label1], y_binary_pred[y_binary_true == merge_label2]
+                x1_rand, x2_rand = y_pred_rand[y_binary_true == merge_label1], y_pred_rand[y_binary_true == merge_label2]
+
+                if any(x.shape[0] == 0 for x in (x1, x2, x1_rand, x2_rand)):
+                    ignore_cache.add(test_idx_hash)
+                    continue
 
                 # resampling (currently decreases performance)
                 x1 = x1[np.random.choice(x1.shape[0], self.sample_size // 2, replace=True)]
@@ -211,16 +257,21 @@ class CLaP:
 
                 labels[labels == merge_label2] = merge_label1
                 y[y == merge_label2] = merge_label1
+
+                y_true[y_true == merge_label2] = merge_label1
+                y_pred[y_pred == merge_label2] = merge_label1
+
                 merged = True
+                break
 
         self.labels = labels - labels.min()
+        self.cross_val_score = f1_score(y_true, y_pred, average="macro")
 
         self.is_fitted = True
         return self
 
     def score(self):
-        # todo: compute cross-validation score
-        pass
+        return self.cross_val_score
 
     def get_segment_labels(self):
         labels = [self.labels[0]]
@@ -241,3 +292,57 @@ class CLaP:
                 change_points.append(self.change_points[idx - 1])
 
         return np.asarray(change_points)
+
+
+class MultiCLaP(CLaP):
+
+    def __init__(self, window_size="suss", classifier="rocket", n_splits=5, n_jobs=1, sample_size=1_000,
+                 random_state=2357):
+        super().__init__(
+            window_size=window_size,
+            classifier=classifier,
+            n_splits=n_splits,
+            n_jobs=n_jobs,
+            sample_size=sample_size,
+            random_state=random_state
+        )
+
+    def fit(self, time_series, change_points, labels=None):
+        if time_series.ndim > 1:
+            scores, claps = [], []
+
+            for dim_idx in range(time_series.shape[1]):
+                clap = CLaP(
+                    window_size=self.window_size,
+                    classifier=self.classifier,
+                    n_splits=self.n_splits,
+                    n_jobs=self.n_jobs,
+                    sample_size=self.sample_size,
+                    random_state=self.random_state
+                ).fit(time_series[:, dim_idx], change_points, labels)
+
+                scores.append(clap.score())
+                claps.append(clap)
+
+            self.clap = claps[np.argmax(scores)]
+        else:
+            self.clap = CLaP(
+                window_size=self.window_size,
+                classifier=self.classifier,
+                n_splits=self.n_splits,
+                n_jobs=self.n_jobs,
+                sample_size=self.sample_size,
+                random_state=self.random_state
+            ).fit(time_series, change_points, labels)
+
+        self.is_fitted = True
+        return self
+
+    def score(self):
+        return self.clap.score()
+
+    def get_segment_labels(self):
+        return self.clap.get_segment_labels()
+
+    def get_change_points(self):
+        return self.clap.get_change_points()

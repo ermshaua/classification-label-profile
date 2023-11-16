@@ -1,4 +1,8 @@
 import os
+import shutil
+import stat
+import tempfile
+import subprocess
 
 from numba import njit
 
@@ -42,7 +46,8 @@ def load_datasets(dataset, selection=None):
         else:
             ts = np.load(file=path + "data.npz")[ts_name]
 
-        df.append((ts_name, int(window_size), np.array([int(_) for _ in change_points]), np.array([int(_) for _ in labels]), ts))
+        df.append((ts_name, int(window_size), np.array([int(_) for _ in change_points]),
+                   np.array([int(_) for _ in labels]), ts))
 
     return pd.DataFrame.from_records(df, columns=["name", "window_size", "change_points", "labels", "time_series"])
 
@@ -82,6 +87,70 @@ def load_tssb_datasets(names=None):
         df.append((ts_name, int(window_size), np.array([int(_) for _ in change_points]), np.array(labels), ts))
 
     return pd.DataFrame.from_records(df, columns=["dataset", "window_size", "change_points", "labels", "time_series"])
+
+
+def load_has_datasets(selection=None):
+    data_path = ABS_PATH + "/../datasets/has2023_master.csv.zip"
+
+    np_cols = ["change_points", "activities", "x-acc", "y-acc", "z-acc",
+               "x-gyro", "y-gyro", "z-gyro",
+               "x-mag", "y-mag", "z-mag",
+               "lat", "lon", "speed"]
+
+    converters = {
+        col: lambda val: np.array([]) if len(val) == 0 else np.array(eval(val)) for col
+        in np_cols}
+
+    df_has = pd.read_csv(data_path, converters=converters, compression="zip")
+
+    df = []
+    sample_rate = 50
+
+    for _, row in df_has.iterrows():
+        if selection is not None and row.ts_challenge_id not in selection: continue
+        ts_name = f"{row.group}_subject{row.subject}_routine{row.routine} (id{row.ts_challenge_id})"
+
+        label_mapping = {label: idx for idx, label in enumerate(np.unique(row.activities))}
+        labels = np.array([label_mapping[label] for label in row.activities])
+
+        if row.group == "indoor":
+            ts = np.hstack((
+                row["x-acc"].reshape(-1, 1),
+                row["y-acc"].reshape(-1, 1),
+                row["z-acc"].reshape(-1, 1),
+                row["x-gyro"].reshape(-1, 1),
+                row["y-gyro"].reshape(-1, 1),
+                row["z-gyro"].reshape(-1, 1),
+                row["x-mag"].reshape(-1, 1),
+                row["y-mag"].reshape(-1, 1),
+                row["z-mag"].reshape(-1, 1)
+            ))
+        elif row.group == "outdoor":
+            ts = np.hstack((
+                row["x-acc"].reshape(-1, 1),
+                row["y-acc"].reshape(-1, 1),
+                row["z-acc"].reshape(-1, 1),
+                row["x-mag"].reshape(-1, 1),
+                row["y-mag"].reshape(-1, 1),
+                row["z-mag"].reshape(-1, 1),
+                row["lat"].reshape(-1, 1),
+                row["lon"].reshape(-1, 1),
+                row["speed"].reshape(-1, 1)
+            ))
+        else:
+            raise ValueError("Unknown group in HAS dataset.")
+
+        df.append((ts_name, sample_rate, row.change_points, labels, ts))
+
+    if selection is None:
+        selection = df_has.ts_challenge_id
+    else:
+        selection = np.arange(len(selection))
+
+    return pd.DataFrame.from_records(
+        df,
+        columns=["dataset", "window_size", "change_points", "labels", "time_series"]
+    ).iloc[selection, :]
 
 
 def load_mosad_datasets():
@@ -163,7 +232,7 @@ def create_sliding_window(time_series, window_size, stride=1):
     X = []
 
     for idx in range(0, time_series.shape[0], stride):
-        if idx+window_size <= time_series.shape[0]:
+        if idx + window_size <= time_series.shape[0]:
             X.append(time_series[idx:idx + window_size])
 
     return np.array(X, dtype=time_series.dtype)
@@ -176,6 +245,7 @@ def expand_label_sequence(labels, window_size, stride):
         X.extend([label] * (window_size - (window_size - stride)))
 
     return np.array(X, dtype=labels.dtype)
+
 
 class AeonTransformerWrapper(BaseEstimator, TransformerMixin):
 
@@ -192,3 +262,23 @@ class AeonTransformerWrapper(BaseEstimator, TransformerMixin):
         df = pd.DataFrame()
         df['dim_0'] = [pd.Series(ts) for ts in X]
         return self.estimator.transform(df).to_numpy()
+
+
+def save_tikz(file_path, tikz_code):
+    with tempfile.TemporaryDirectory() as temp_dir:
+        tex_file_path = os.path.join(temp_dir, "tmp.tex")
+        pdf_file_path = os.path.join(temp_dir, "tmp.pdf")
+
+        with open(tex_file_path, "w") as file:
+            file.write(tikz_code)
+
+        subprocess.Popen([
+            "pdflatex",
+            "-interaction=nonstopmode",
+            "-halt-on-error",
+            "-output-directory",
+            temp_dir,
+            tex_file_path
+        ], stdout = subprocess.PIPE).wait()
+
+        shutil.move(pdf_file_path, file_path)
