@@ -1,4 +1,5 @@
-import itertools
+# taken from: https://github.com/softlab-unimore/time2feat
+
 import itertools
 import multiprocessing as mp
 import os

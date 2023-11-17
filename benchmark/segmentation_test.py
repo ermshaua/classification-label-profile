@@ -1,16 +1,10 @@
 import os
-import shutil
 import sys
-import warnings
-from ctypes import Union
 
-import stumpy
-from aeon.annotation.ggs import GreedyGaussianSegmentation
-from bocd import BayesianOnlineChangePointDetection, ConstantHazard, StudentT
 from roerich.algorithms import ChangePointDetectionClassifier, ChangePointDetectionRuLSIF
 from ruptures import Binseg, Window, Pelt
 from sklearn.cluster import AgglomerativeClustering
-from stumpy import stump, fluss
+from stumpy import stump
 from stumpy.floss import _cac
 
 sys.path.insert(0, "../")
@@ -24,6 +18,7 @@ from claspy.segmentation import BinaryClaSPSegmentation
 from src.utils import load_datasets, load_tssb_datasets, load_has_datasets
 
 import numpy as np
+
 np.random.seed(1379)
 
 
@@ -36,13 +31,14 @@ def evaluate_clasp(dataset, w, cps, labels, ts, **seg_kwargs):
         window_sizes, profiles, found_cps, scores, ind = [], [], [], [], []
 
         for dim in range(ts.shape[1]):
-            clasp = BinaryClaSPSegmentation(n_jobs=1).fit(ts[:,dim])
+            clasp = BinaryClaSPSegmentation(n_jobs=1).fit(ts[:, dim])
 
             window_sizes.append(clasp.window_size)
             profiles.append(clasp.profile)
-            scores.extend(clasp.scores) # todo: this should be fixed in claspy: np.array(clasp.change_points, dtype=int)
+            scores.extend(
+                clasp.scores)  # todo: this should be fixed in claspy: np.array(clasp.change_points, dtype=int)
             found_cps.extend(clasp.change_points)
-            ind.extend([len(window_sizes)-1] * len(clasp.change_points))
+            ind.extend([len(window_sizes) - 1] * len(clasp.change_points))
 
         min_len = np.min([len(p) for p in profiles])
         profile = np.max([p[:min_len] for p in profiles], axis=0)
@@ -53,7 +49,8 @@ def evaluate_clasp(dataset, w, cps, labels, ts, **seg_kwargs):
         min_match = int(np.log2(len(profiles)))
 
         if len(found_cps) >= min_match:
-            clu = AgglomerativeClustering(n_clusters=None, linkage="average", distance_threshold=5 * np.mean(window_sizes))
+            clu = AgglomerativeClustering(n_clusters=None, linkage="average",
+                                          distance_threshold=5 * np.mean(window_sizes))
             clusters = clu.fit_predict(found_cps.reshape(-1, 1))
 
             merged_cps = []
@@ -86,7 +83,7 @@ def evaluate_window(dataset, w, cps, labels, ts, **seg_kwargs):
     # normalize ts to have comparable penalty influence
     ts = (ts - ts.min()) / (ts.max() - ts.min())
 
-    binseg = Window(width=10*w, model="ar", min_size=5 * w).fit(ts)
+    binseg = Window(width=10 * w, model="ar", min_size=5 * w).fit(ts)
     found_cps = np.array(binseg.predict(pen=0.2)[:-1], dtype=np.int64)
 
     return evalute_segmentation_algorithm(dataset, ts.shape[0], cps, found_cps)
@@ -110,7 +107,7 @@ def evaluate_fluss(dataset, w, cps, labels, ts, **seg_kwargs):
         C = []
 
         for dim in range(ts.shape[1]):
-            mp = stump(ts[:,dim], m=w)
+            mp = stump(ts[:, dim], m=w)
             C.append(_cac(mp[:, 1], L=w))
 
         cac = np.mean(C, axis=0)
@@ -141,7 +138,7 @@ def evaluate_ddre(dataset, w, cps, labels, ts, **seg_kwargs):
 
 
 def evaluate_rulsif(dataset, w, cps, labels, ts, **seg_kwargs):
-    rulsif = ChangePointDetectionRuLSIF(periods=1, window_size=int(5*w), step=5, n_runs=1)
+    rulsif = ChangePointDetectionRuLSIF(periods=1, window_size=int(5 * w), step=5, n_runs=1)
 
     try:
         # fails sometimes
@@ -190,7 +187,7 @@ def evaluate_candidate(dataset_name, candidate_name, eval_func, columns=None, n_
     )
 
     print(
-        f"{candidate_name}: mean_f1_score={np.round(df_cand.f1_score.mean(), 3)}, mean_covering_score={np.round(df_cand.covering_score.mean(), 3)}")
+        f"{dataset_name} {candidate_name}: mean_f1_score={np.round(df_cand.f1_score.mean(), 3)}, mean_covering_score={np.round(df_cand.covering_score.mean(), 3)}")
     return df_cand
 
 
@@ -229,4 +226,5 @@ if __name__ == '__main__':
     if not os.path.exists(exp_path):
         os.mkdir(exp_path)
 
-    evaluate_competitor("HAS", exp_path, n_jobs, verbose)
+    for bench in ("TSSB", "UTSA", "HAS"):
+        evaluate_competitor(bench, exp_path, n_jobs, verbose)

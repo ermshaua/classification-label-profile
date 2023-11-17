@@ -1,3 +1,5 @@
+# taken from: https://github.com/Lab-ANT/Time2State/
+
 import numpy as np
 from pyhsmm import distributions
 from pyhsmm import models

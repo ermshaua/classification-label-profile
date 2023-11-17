@@ -6,7 +6,7 @@ from sklearn.cluster import AgglomerativeClustering, SpectralClustering
 
 sys.path.insert(0, "../")
 
-from src.competitor.time2feat import feature_extraction, feature_selection, ClusterWrapper
+from external.competitor.time2feat import feature_extraction, feature_selection, ClusterWrapper
 
 from aeon.clustering import TimeSeriesKMedoids, TimeSeriesKMeans
 from tslearn.clustering import KShape, KernelKMeans

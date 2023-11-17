@@ -1,4 +1,4 @@
-# takne from: https://github.com/Lab-ANT/Time2State/b
+# taken from: https://github.com/Lab-ANT/Time2State/
 
 import abc
 import math
@@ -40,11 +40,14 @@ def normalize(X, mode='channel'):
         for i in range(X.shape[1]):
             max = np.max(X[:, i])
             min = np.min(X[:, i])
-            X[:, i] = (X[:, i] - min) / (max - min)
+            try:
+                X[:, i] = (X[:, i] - min) / (max - min)
+            except ZeroDivisionError:
+                pass
     elif mode == 'all':
         max = np.max(X)
         min = np.min(X)
-        X = (X - min) / (max - min)
+        X = np.true_divide(X - min, max - min)
 
     return X
 

@@ -7,15 +7,11 @@ sys.path.insert(0, "../")
 import os
 import shutil
 
-from src.competitor.hdp_hsmm import HDP_HSMM
-
-from src.competitor.autoplait import autoplait
-
-from src.competitor.ticc import TICC
-
+from external.competitor.hdp_hsmm import HDP_HSMM
+from external.competitor.autoplait import autoplait
+from external.competitor.ticc import TICC
 from sklearn.metrics import adjusted_mutual_info_score
-
-from src.competitor.time2state import CausalConv_LSE_Adaper, DPGMM, params_LSE, Time2State, normalize
+from external.competitor.time2state import CausalConv_LSE_Adaper, DPGMM, params_LSE, Time2State, normalize
 
 import daproli as dp
 import pandas as pd
@@ -23,7 +19,7 @@ from tqdm import tqdm
 
 from benchmark.metrics import f_measure, covering
 from src.clap import CLaP, MultiCLaP
-from src.utils import create_state_labels, load_tssb_datasets, load_datasets, load_has_datasets
+from src.utils import create_state_labels, load_tssb_datasets, load_datasets, load_has_datasets, extract_cps
 
 import numpy as np
 
@@ -47,7 +43,7 @@ def evaluate_clap(dataset, w, cps, labels, ts, **seg_kwargs):
     seg_df = seg_kwargs["segmentation"]
     found_cps = seg_df.loc[seg_df["dataset"] == dataset].iloc[0].found_cps
 
-    clap = CLaP(n_jobs=6)
+    clap = CLaP(n_jobs=2)
     clap.fit(ts, found_cps)
 
     found_cps = clap.get_change_points()
@@ -81,7 +77,7 @@ def evaluate_time2state(dataset, w, cps, labels, ts, **seg_kwargs):
         print(f"Exception: {e}; using only zero class.")
         pred_seg_labels = np.zeros_like(true_seg_labels)
 
-    found_cps = np.arange(pred_seg_labels.shape[0] - 1)[pred_seg_labels[:-1] != pred_seg_labels[1:]] + 1
+    found_cps = extract_cps(pred_seg_labels)
     return evaluate_state_detection_algorithm(dataset, ts.shape[0], cps, found_cps, true_seg_labels, pred_seg_labels)
 
 
@@ -91,20 +87,22 @@ def evaluate_ticc(dataset, w, cps, labels, ts, **seg_kwargs):
     beta = 2200
     threshold = 1e-4
 
+    if ts.ndim == 1:
+        ts = ts.reshape(-1, 1)
+
     true_seg_labels = create_state_labels(cps, labels, ts.shape[0] - w + 1)
-    data = np.array([ts]).reshape(-1, 1)
 
     try:
         ticc = TICC(window_size=w, number_of_clusters=num_state, lambda_parameter=lambda_parameter, beta=beta,
                     threshold=threshold, maxIters=10)
 
-        pred_seg_labels, _ = ticc.fit_transform(data)
+        pred_seg_labels, _ = ticc.fit_transform(ts)
         pred_seg_labels = pred_seg_labels.astype(np.int64)
     except Exception as e:
         print(f"Exception: {e}; using only zero class.")
         pred_seg_labels = np.zeros_like(true_seg_labels)
 
-    found_cps = np.arange(pred_seg_labels.shape[0] - 1)[pred_seg_labels[:-1] != pred_seg_labels[1:]] + 1
+    found_cps = extract_cps(pred_seg_labels)
     return evaluate_state_detection_algorithm(dataset, ts.shape[0], cps, found_cps, true_seg_labels, pred_seg_labels)
 
 
@@ -118,28 +116,32 @@ def evaluate_autoplait(dataset, w, cps, labels, ts, **seg_kwargs):
 
 
 def evaluate_hdp_hsmm(dataset, w, cps, labels, ts, **seg_kwargs):
-    data = np.array([ts]).reshape(-1, 1)
+    if ts.ndim == 1:
+        ts = ts.reshape(-1, 1)
+
     true_seg_labels = create_state_labels(cps, labels, ts.shape[0])
 
     try:
         hdp = HDP_HSMM(alpha=1e4, beta=20, n_iter=20)
-        pred_seg_labels = hdp.fit_transform(data)
+        pred_seg_labels = hdp.fit_transform(ts)
     except Exception as e:
         print(f"Exception: {e}; using only zero class.")
         pred_seg_labels = np.zeros_like(true_seg_labels)
 
-    found_cps = np.arange(pred_seg_labels.shape[0] - 1)[pred_seg_labels[:-1] != pred_seg_labels[1:]] + 1
+    found_cps = extract_cps(pred_seg_labels)
     return evaluate_state_detection_algorithm(dataset, ts.shape[0], cps, found_cps, true_seg_labels, pred_seg_labels)
 
 
 def evaluate_ggs(dataset, w, cps, labels, ts, **seg_kwargs):
-    data = np.array([ts]).reshape(-1, 1)
+    if ts.ndim == 1:
+        ts = ts.reshape(-1, 1)
+
     ggs = GreedyGaussianSegmentation(k_max=len(cps), lamb=32, random_state=1379)
 
-    pred_seg_labels = ggs.fit_predict(data)
+    pred_seg_labels = ggs.fit_predict(ts)
     true_seg_labels = create_state_labels(cps, labels, ts.shape[0])
 
-    found_cps = np.arange(pred_seg_labels.shape[0] - 1)[pred_seg_labels[:-1] != pred_seg_labels[1:]] + 1
+    found_cps = extract_cps(pred_seg_labels)
     return evaluate_state_detection_algorithm(dataset, ts.shape[0], cps, found_cps, true_seg_labels, pred_seg_labels)
 
 
@@ -148,8 +150,8 @@ def evaluate_state_detection_algorithm(dataset, n_timestamps, cps_true, cps_pred
     covering_score = np.round(covering({0: cps_true}, cps_pred, n_timestamps), 3)
     ami = np.round(adjusted_mutual_info_score(labels_true, labels_pred), 3)
 
-    print(f"{dataset}: F1-Score: {f1_score}, Covering: {covering_score}, AMI: {ami}")
-    return dataset, cps_true.tolist(), cps_pred.tolist(), labels_pred, f1_score, covering_score, ami
+    # print(f"{dataset}: F1-Score: {f1_score}, Covering: {covering_score}, AMI: {ami}")
+    return dataset, cps_true.tolist(), cps_pred.tolist(), labels_pred.tolist(), f1_score, covering_score, ami
 
 
 def evaluate_candidate(dataset_name, candidate_name, eval_func, columns=None, n_jobs=1, verbose=0, **seg_kwargs):
@@ -178,7 +180,7 @@ def evaluate_candidate(dataset_name, candidate_name, eval_func, columns=None, n_
     )
 
     print(
-        f"{candidate_name}: mean_f1_score={np.round(df_cand.f1_score.mean(), 3)}, mean_covering_score={np.round(df_cand.covering_score.mean(), 3)}, mean_ami_score={np.round(df_cand.ami.mean(), 3)}")
+        f"{dataset_name}: {candidate_name}: mean_f1_score={np.round(df_cand.f1_score.mean(), 3)}, mean_covering_score={np.round(df_cand.covering_score.mean(), 3)}, mean_ami_score={np.round(df_cand.ami.mean(), 3)}")
     return df_cand
 
 
@@ -188,11 +190,11 @@ def evaluate_competitor(dataset_name, exp_path, n_jobs, verbose):
 
     competitors = [
         ("CLaP", evaluate_clap),
-        # ("Time2State", evaluate_time2state),
-        # ("TICC", evaluate_ticc),
-        # ("AutoPlait", evaluate_autoplait),
-        # ("HDP-HSMM", evaluate_hdp_hsmm),
-        # ("GGS", evaluate_ggs)
+        ("Time2State", evaluate_time2state),
+        ("TICC", evaluate_ticc),
+        ("AutoPlait", evaluate_autoplait),
+        ("HDP-HSMM", evaluate_hdp_hsmm),
+        ("GGS", evaluate_ggs)
     ]
 
     # load segmentation
@@ -221,9 +223,10 @@ def evaluate_competitor(dataset_name, exp_path, n_jobs, verbose):
 
 if __name__ == '__main__':
     exp_path = "../experiments/state_detection/"
-    n_jobs, verbose = 20, 0
+    n_jobs, verbose = 50, 0
 
     if not os.path.exists(exp_path):
         os.mkdir(exp_path)
 
-    evaluate_competitor("TSSB", exp_path, n_jobs, verbose)
+    for bench in ("TSSB", "UTSA", "HAS"):
+        evaluate_competitor(bench, exp_path, n_jobs, verbose)

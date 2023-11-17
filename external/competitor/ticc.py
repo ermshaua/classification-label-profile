@@ -1,4 +1,4 @@
-# Taken frome: https://github.com/davidhallac/TICC
+# Taken from: https://github.com/davidhallac/TICC
 
 import collections
 import errno

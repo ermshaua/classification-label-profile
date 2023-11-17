@@ -247,6 +247,11 @@ def expand_label_sequence(labels, window_size, stride):
     return np.array(X, dtype=labels.dtype)
 
 
+def extract_cps(label_seq):
+    label_diffs = label_seq[:-1] != label_seq[1:]
+    return np.arange(label_seq.shape[0] - 1)[label_diffs] + 1
+
+
 class AeonTransformerWrapper(BaseEstimator, TransformerMixin):
 
     def __init__(self, estimator):
