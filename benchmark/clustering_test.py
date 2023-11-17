@@ -22,23 +22,20 @@ import numpy as np
 
 np.random.seed(1379)
 
-# TODO: Even more competitors in: Li et al. 2021. Time series clustering in linear time complexity. DMKD.
-
 def evaluate_kshape(dataset, w, cps, labels, ts, **seg_kwargs):
     # as in CLaP
     sample_size = 2 * w
     stride = sample_size // 2
 
     clf = KShape(n_clusters=np.unique(labels).shape[0], random_state=1379)
-    pred = clf.fit_predict(create_sliding_window(ts, sample_size, stride))
+
+    windows = create_sliding_window(ts, sample_size, stride)
+    pred = clf.fit_predict(windows)
 
     pred_seg_labels = expand_label_sequence(pred, sample_size, stride)
     true_seg_labels = create_state_labels(cps, labels, pred_seg_labels.shape[0])
 
-    ami = np.round(adjusted_mutual_info_score(true_seg_labels, pred_seg_labels), 3)
-
-    print(f"{dataset}: AMI: {ami}")
-    return dataset, true_seg_labels, pred_seg_labels, ami
+    return evaluate_clustering_detection_algorithm(dataset, true_seg_labels, pred_seg_labels)
 
 
 def evaluate_kmeans(dataset, w, cps, labels, ts, **seg_kwargs):
@@ -47,15 +44,16 @@ def evaluate_kmeans(dataset, w, cps, labels, ts, **seg_kwargs):
     stride = sample_size // 2
 
     clf = TimeSeriesKMeans(n_clusters=np.unique(labels).shape[0], distance="msm", random_state=1379)
-    pred = clf.fit_predict(create_sliding_window(ts, sample_size, stride))
+
+    windows = create_sliding_window(ts, sample_size, stride)
+    if ts.ndim > 1: windows = np.array([w.T for w in windows])
+
+    pred = clf.fit_predict(windows)
 
     pred_seg_labels = expand_label_sequence(pred, sample_size, stride)
     true_seg_labels = create_state_labels(cps, labels, pred_seg_labels.shape[0])
 
-    ami = np.round(adjusted_mutual_info_score(true_seg_labels, pred_seg_labels), 3)
-
-    print(f"{dataset}: AMI: {ami}")
-    return dataset, true_seg_labels, pred_seg_labels, ami
+    return evaluate_clustering_detection_algorithm(dataset, true_seg_labels, pred_seg_labels)
 
 
 def evaluate_gak(dataset, w, cps, labels, ts, **seg_kwargs):
@@ -64,15 +62,14 @@ def evaluate_gak(dataset, w, cps, labels, ts, **seg_kwargs):
     stride = sample_size // 2
 
     clf = KernelKMeans(n_clusters=np.unique(labels).shape[0], random_state=1379)
-    pred = clf.fit_predict(create_sliding_window(ts, sample_size, stride))
+
+    windows = create_sliding_window(ts, sample_size, stride)
+    pred = clf.fit_predict(windows)
 
     pred_seg_labels = expand_label_sequence(pred, sample_size, stride)
     true_seg_labels = create_state_labels(cps, labels, pred_seg_labels.shape[0])
 
-    ami = np.round(adjusted_mutual_info_score(true_seg_labels, pred_seg_labels), 3)
-
-    print(f"{dataset}: AMI: {ami}")
-    return dataset, true_seg_labels, pred_seg_labels, ami
+    return evaluate_clustering_detection_algorithm(dataset, true_seg_labels, pred_seg_labels)
 
 
 def evaluate_kmedoids(dataset, w, cps, labels, ts, **seg_kwargs):
@@ -80,8 +77,10 @@ def evaluate_kmedoids(dataset, w, cps, labels, ts, **seg_kwargs):
     sample_size = 2 * w
     stride = sample_size // 2
 
-    clf = TimeSeriesKMedoids(n_clusters=np.unique(labels).shape[0], random_state=1379)
+    clf = TimeSeriesKMedoids(n_clusters=np.unique(labels).shape[0], distance="msm", random_state=1379)
+
     windows = create_sliding_window(ts, sample_size, stride)
+    if ts.ndim > 1: windows = np.array([w.T for w in windows])
 
     if np.unique(labels).shape[0] > 1:
         pred = clf.fit_predict(windows)
@@ -91,10 +90,7 @@ def evaluate_kmedoids(dataset, w, cps, labels, ts, **seg_kwargs):
     pred_seg_labels = expand_label_sequence(pred, sample_size, stride)
     true_seg_labels = create_state_labels(cps, labels, pred_seg_labels.shape[0])
 
-    ami = np.round(adjusted_mutual_info_score(true_seg_labels, pred_seg_labels), 3)
-
-    print(f"{dataset}: AMI: {ami}")
-    return dataset, true_seg_labels, pred_seg_labels, ami
+    return evaluate_clustering_detection_algorithm(dataset, true_seg_labels, pred_seg_labels)
 
 
 def evaluate_time2feat(dataset, w, cps, labels, ts, **seg_kwargs):
@@ -103,8 +99,7 @@ def evaluate_time2feat(dataset, w, cps, labels, ts, **seg_kwargs):
     stride = sample_size // 2
 
     windows = create_sliding_window(ts, sample_size, stride)
-    # Time2Feat expects multivariate time series
-    windows = np.array([np.array([w]) for w in windows])
+    if ts.ndim == 1: windows = np.array([np.array([w]) for w in windows])
 
     # model params
     transform_type = 'minmax'
@@ -124,10 +119,7 @@ def evaluate_time2feat(dataset, w, cps, labels, ts, **seg_kwargs):
     pred_seg_labels = expand_label_sequence(pred, sample_size, stride)
     true_seg_labels = create_state_labels(cps, labels, pred_seg_labels.shape[0])
 
-    ami = np.round(adjusted_mutual_info_score(true_seg_labels, pred_seg_labels), 3)
-
-    print(f"{dataset}: AMI: {ami}")
-    return dataset, true_seg_labels, pred_seg_labels, ami
+    return evaluate_clustering_detection_algorithm(dataset, true_seg_labels, pred_seg_labels)
 
 
 def evaluate_agglomerative(dataset, w, cps, labels, ts, **seg_kwargs):
@@ -136,15 +128,16 @@ def evaluate_agglomerative(dataset, w, cps, labels, ts, **seg_kwargs):
     stride = sample_size // 2
 
     clf = AgglomerativeClustering(n_clusters=np.unique(labels).shape[0])
-    pred = clf.fit_predict(create_sliding_window(ts, sample_size, stride))
+
+    windows = create_sliding_window(ts, sample_size, stride)
+    if ts.ndim > 1: windows = np.array([w.flatten() for w in windows])
+
+    pred = clf.fit_predict(windows)
 
     pred_seg_labels = expand_label_sequence(pred, sample_size, stride)
     true_seg_labels = create_state_labels(cps, labels, pred_seg_labels.shape[0])
 
-    ami = np.round(adjusted_mutual_info_score(true_seg_labels, pred_seg_labels), 3)
-
-    print(f"{dataset}: AMI: {ami}")
-    return dataset, true_seg_labels, pred_seg_labels, ami
+    return evaluate_clustering_detection_algorithm(dataset, true_seg_labels, pred_seg_labels)
 
 
 def evaluate_spectral(dataset, w, cps, labels, ts, **seg_kwargs):
@@ -153,15 +146,22 @@ def evaluate_spectral(dataset, w, cps, labels, ts, **seg_kwargs):
     stride = sample_size // 2
 
     clf = SpectralClustering(n_clusters=np.unique(labels).shape[0], random_state=1379)
-    pred = clf.fit_predict(create_sliding_window(ts, sample_size, stride))
+
+    windows = create_sliding_window(ts, sample_size, stride)
+    if ts.ndim > 1: windows = np.array([w.flatten() for w in windows])
+
+    pred = clf.fit_predict(windows)
 
     pred_seg_labels = expand_label_sequence(pred, sample_size, stride)
     true_seg_labels = create_state_labels(cps, labels, pred_seg_labels.shape[0])
 
-    ami = np.round(adjusted_mutual_info_score(true_seg_labels, pred_seg_labels), 3)
+    return evaluate_clustering_detection_algorithm(dataset, true_seg_labels, pred_seg_labels)
 
-    print(f"{dataset}: AMI: {ami}")
-    return dataset, true_seg_labels, pred_seg_labels, ami
+
+def evaluate_clustering_detection_algorithm(dataset, labels_true, labels_pred):
+    ami = np.round(adjusted_mutual_info_score(labels_true, labels_pred), 3)
+    print(f"{dataset}: AMI-Score: {ami}")
+    return dataset, labels_true.tolist(), labels_pred.tolist(), ami
 
 
 def evaluate_candidate(dataset_name, candidate_name, eval_func, columns=None, n_jobs=1, verbose=0, **seg_kwargs):
@@ -179,7 +179,7 @@ def evaluate_candidate(dataset_name, candidate_name, eval_func, columns=None, n_
     )
 
     if columns is None:
-        columns = ["dataset", "true_labels", "found_labels", "ami"]
+        columns = ["dataset", "true_labels", "found_labels", "ami_score"]
 
     df_cand = pd.DataFrame.from_records(
         df_cand,
@@ -191,18 +191,19 @@ def evaluate_candidate(dataset_name, candidate_name, eval_func, columns=None, n_
     return df_cand
 
 
+# TODO: Even more competitors in: Li et al. 2021. Time series clustering in linear time complexity. DMKD.
 def evaluate_competitor(dataset_name, exp_path, n_jobs, verbose):
     if not os.path.exists(exp_path):
         os.mkdir(exp_path)
 
     competitors = [
-        # ("KShape", evaluate_kshape),
-        # ("KMeans", evaluate_kmeans),
-        # ("GAK", evaluate_gak),
-        # ("KMedoids", evaluate_kmedoids),
+        ("KShape", evaluate_kshape),
+        ("KMeans", evaluate_kmeans),
+        ("GAK", evaluate_gak),
+        ("KMedoids", evaluate_kmedoids),
         ("Time2Feat", evaluate_time2feat),
-        # ("Agglomerative", evaluate_agglomerative),
-        # ("Spectral", evaluate_spectral)
+        ("Agglomerative", evaluate_agglomerative),
+        ("Spectral", evaluate_spectral)
     ]
 
     for candidate_name, eval_func in competitors:

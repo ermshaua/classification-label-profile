@@ -3,6 +3,8 @@ import sys
 
 from aeon.annotation.ggs import GreedyGaussianSegmentation
 
+from benchmark.clustering_test import evaluate_kshape, evaluate_kmeans, evaluate_gak, evaluate_time2feat, \
+    evaluate_agglomerative, evaluate_spectral
 from src.clap import CLaP
 from external.competitor import autoplait
 
@@ -13,7 +15,7 @@ import pandas as pd
 sys.path.insert(0, "../")
 
 from benchmark.metrics import covering, f_measure
-from src.utils import create_state_labels, load_has_datasets
+from src.utils import create_state_labels, load_has_datasets, extract_cps
 
 from sklearn.metrics import adjusted_rand_score, adjusted_mutual_info_score
 
@@ -43,14 +45,18 @@ if __name__ == '__main__':
     # found_cps = clap.get_change_points()
     # found_labels = clap.get_segment_labels()
 
-    found_cps, found_labels = autoplait(dataset, ts, cps.shape[0])
+    _, true_seg_labels, pred_seg_labels, ami = evaluate_spectral(dataset, w, cps, labels, ts)
+    found_cps = extract_cps(pred_seg_labels)
 
-    true_seg_labels = create_state_labels(cps, labels, ts.shape[0])
-    pred_seg_labels = create_state_labels(found_cps, found_labels, ts.shape[0])
+    print(ts.shape[0])
+    print(pred_seg_labels.shape[0])
+
+    # true_seg_labels = create_state_labels(cps, labels, ts.shape[0])
+    # pred_seg_labels = create_state_labels(found_cps, found_labels, ts.shape[0])
 
     f1_score = np.round(f_measure({0: cps}, found_cps, margin=int(ts.shape[0] * .01)), 3)
     covering_score = np.round(covering({0: cps}, found_cps, ts.shape[0]), 3)
     ami = np.round(adjusted_mutual_info_score(true_seg_labels, pred_seg_labels), 3)
 
-    print(f"{dataset}: F1-Score: {f1_score}, Covering: {covering_score}, AMI: {ami}, Labels: {found_labels}")
+    print(f"{dataset}: F1-Score: {f1_score}, Covering: {covering_score}, AMI: {ami}") # , Labels: {found_labels}
 

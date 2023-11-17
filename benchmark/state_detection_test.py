@@ -5,7 +5,6 @@ from aeon.annotation.ggs import GreedyGaussianSegmentation
 sys.path.insert(0, "../")
 
 import os
-import shutil
 
 from external.competitor.hdp_hsmm import HDP_HSMM
 from external.competitor.autoplait import autoplait
@@ -18,7 +17,7 @@ import pandas as pd
 from tqdm import tqdm
 
 from benchmark.metrics import f_measure, covering
-from src.clap import CLaP, MultiCLaP
+from src.clap import CLaP
 from src.utils import create_state_labels, load_tssb_datasets, load_datasets, load_has_datasets, extract_cps
 
 import numpy as np
@@ -150,7 +149,7 @@ def evaluate_state_detection_algorithm(dataset, n_timestamps, cps_true, cps_pred
     covering_score = np.round(covering({0: cps_true}, cps_pred, n_timestamps), 3)
     ami = np.round(adjusted_mutual_info_score(labels_true, labels_pred), 3)
 
-    # print(f"{dataset}: F1-Score: {f1_score}, Covering: {covering_score}, AMI: {ami}")
+    # print(f"{dataset}: F1-Score: {f1_score}, Covering-Score: {covering_score}, AMI-Score: {ami}")
     return dataset, cps_true.tolist(), cps_pred.tolist(), labels_pred.tolist(), f1_score, covering_score, ami
 
 
@@ -171,7 +170,7 @@ def evaluate_candidate(dataset_name, candidate_name, eval_func, columns=None, n_
     )
 
     if columns is None:
-        columns = ["dataset", "true_cps", "found_cps", "found_labels", "f1_score", "covering_score", "ami"]
+        columns = ["dataset", "true_cps", "found_cps", "found_labels", "f1_score", "covering_score", "ami_score"]
 
     df_cand = pd.DataFrame.from_records(
         df_cand,
