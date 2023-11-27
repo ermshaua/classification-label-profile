@@ -24,14 +24,14 @@ np.random.seed(1379)
 
 def evaluate_clasp(dataset, w, cps, labels, ts, **seg_kwargs):
     if ts.ndim == 1:
-        clasp = BinaryClaSPSegmentation(n_jobs=1)
+        clasp = BinaryClaSPSegmentation(n_jobs=2)
         found_cps = clasp.fit_predict(ts)
         profile = clasp.profile
     else:
         window_sizes, profiles, found_cps, scores, ind = [], [], [], [], []
 
         for dim in range(ts.shape[1]):
-            clasp = BinaryClaSPSegmentation(n_jobs=1).fit(ts[:, dim])
+            clasp = BinaryClaSPSegmentation(n_jobs=2).fit(ts[:, dim])
 
             window_sizes.append(clasp.window_size)
             profiles.append(clasp.profile)
@@ -70,9 +70,6 @@ def evaluate_clasp(dataset, w, cps, labels, ts, **seg_kwargs):
 
 
 def evaluate_binseg(dataset, w, cps, labels, ts, **seg_kwargs):
-    # normalize ts to have comparable penalty influence
-    ts = (ts - ts.min()) / (ts.max() - ts.min())
-
     binseg = Binseg(model="ar", min_size=5 * w).fit(ts)
     found_cps = np.array(binseg.predict(pen=0.2)[:-1], dtype=np.int64)
 
@@ -80,9 +77,6 @@ def evaluate_binseg(dataset, w, cps, labels, ts, **seg_kwargs):
 
 
 def evaluate_window(dataset, w, cps, labels, ts, **seg_kwargs):
-    # normalize ts to have comparable penalty influence
-    ts = (ts - ts.min()) / (ts.max() - ts.min())
-
     binseg = Window(width=10 * w, model="ar", min_size=5 * w).fit(ts)
     found_cps = np.array(binseg.predict(pen=0.2)[:-1], dtype=np.int64)
 
@@ -90,9 +84,6 @@ def evaluate_window(dataset, w, cps, labels, ts, **seg_kwargs):
 
 
 def evaluate_pelt(dataset, w, cps, labels, ts, **seg_kwargs):
-    # normalize ts to have comparable penalty influence
-    ts = (ts - ts.min()) / (ts.max() - ts.min())
-
     binseg = Pelt(model="ar", min_size=5 * w).fit(ts)
     found_cps = np.array(binseg.predict(pen=0.2)[:-1], dtype=np.int64)
 
@@ -153,7 +144,7 @@ def evalute_segmentation_algorithm(dataset, n_timestamps, cps_true, cps_pred, pr
     f1_score = np.round(f_measure({0: cps_true}, cps_pred, margin=int(n_timestamps * .01)), 3)
     covering_score = np.round(covering({0: cps_true}, cps_pred, n_timestamps), 3)
 
-    print(f"{dataset}: F1-Score: {f1_score}, Covering-Score: {covering_score}")
+    print(f"{dataset}: F1-Score: {f1_score}, Covering-Score: {covering_score} Found CPs: {cps_pred}")
 
     if profile is not None:
         return dataset, cps_true.tolist(), cps_pred.tolist(), f1_score, covering_score, profile.tolist()
@@ -221,10 +212,10 @@ def evaluate_competitor(dataset_name, exp_path, n_jobs, verbose):
 
 if __name__ == '__main__':
     exp_path = "../experiments/segmentation/"
-    n_jobs, verbose = 50, 0
+    n_jobs, verbose = 30, 0
 
     if not os.path.exists(exp_path):
         os.mkdir(exp_path)
 
-    for bench in ("TSSB", "UTSA", "HAS"):
+    for bench in ("SKAB",): # "TSSB", "UTSA", "HAS"
         evaluate_competitor(bench, exp_path, n_jobs, verbose)

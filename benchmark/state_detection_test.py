@@ -1,16 +1,10 @@
 import sys
 
-from aeon.annotation.ggs import GreedyGaussianSegmentation
-
 sys.path.insert(0, "../")
 
 import os
 
-from external.competitor.hdp_hsmm import HDP_HSMM
-from external.competitor.autoplait import autoplait
-from external.competitor.ticc import TICC
 from sklearn.metrics import adjusted_mutual_info_score
-from external.competitor.time2state import CausalConv_LSE_Adaper, DPGMM, params_LSE, Time2State, normalize
 
 import daproli as dp
 import pandas as pd
@@ -24,29 +18,27 @@ import numpy as np
 
 np.random.seed(1379)
 
-REOCCURING_SEGMENTS = [
-    "Crop",
-    "EOGHorizontalSignal",
-    "EOGVerticalSignal",
-    "FreezerRegularTrain",
-    "Ham",
-    "MelbournePedestrian",
-    "MiddlePhalanxOutlineAgeGroup",
-    "MiddlePhalanxOutlineCorrect",
-    "ProximalPhalanxOutlineCorrect",
-    "Strawberry",
-]
-
 
 def evaluate_clap(dataset, w, cps, labels, ts, **seg_kwargs):
-    seg_df = seg_kwargs["segmentation"]
-    found_cps = seg_df.loc[seg_df["dataset"] == dataset].iloc[0].found_cps
+    claps, scores = [], []
 
-    clap = CLaP(n_jobs=2)
-    clap.fit(ts, found_cps)
+    for seg_algo, seg_df in seg_kwargs["segmentations"].items():
+        found_cps = seg_df.loc[seg_df["dataset"] == dataset].iloc[0].found_cps
 
-    found_cps = clap.get_change_points()
-    found_labels = clap.get_segment_labels()
+        clap = CLaP(n_jobs=2)
+        clap.fit(ts, found_cps)
+
+        if clap.score() >= 0.1:
+            claps.append(clap)
+            scores.append(clap.score())
+
+    if len(scores) > 0:
+        clap = claps[np.argmax(scores)] # todo: merge instead of argmax
+        found_cps = clap.get_change_points()
+        found_labels = clap.get_segment_labels()
+    else:
+        found_cps = np.zeros(0, dtype=int)
+        found_labels = np.zeros(1, dtype=int)
 
     true_seg_labels = create_state_labels(cps, labels, ts.shape[0])
     pred_seg_labels = create_state_labels(found_cps, found_labels, ts.shape[0])
@@ -55,6 +47,8 @@ def evaluate_clap(dataset, w, cps, labels, ts, **seg_kwargs):
 
 
 def evaluate_time2state(dataset, w, cps, labels, ts, **seg_kwargs):
+    from external.competitor.time2state import CausalConv_LSE_Adaper, DPGMM, params_LSE, Time2State
+
     window_size, step = 256, 10
     params_LSE['in_channels'] = 1 if ts.ndim == 1 else ts.shape[1]
     # params_LSE['out_channels'] = 2
@@ -63,13 +57,12 @@ def evaluate_time2state(dataset, w, cps, labels, ts, **seg_kwargs):
     if ts.ndim == 1:
         ts = ts.reshape(-1, 1)
 
-    data = normalize(ts)
     true_seg_labels = create_state_labels(cps, labels, ts.shape[0])
 
     try:
         t2s = Time2State(
             window_size, step, CausalConv_LSE_Adaper(params_LSE), DPGMM(None)
-        ).fit(data, window_size, step)
+        ).fit(ts, window_size, step)
 
         pred_seg_labels = t2s.state_seq
     except ValueError as e:
@@ -81,6 +74,8 @@ def evaluate_time2state(dataset, w, cps, labels, ts, **seg_kwargs):
 
 
 def evaluate_ticc(dataset, w, cps, labels, ts, **seg_kwargs):
+    from external.competitor.ticc import TICC
+
     num_state = np.unique(labels).shape[0]
     lambda_parameter = 1e-3
     beta = 2200
@@ -106,6 +101,8 @@ def evaluate_ticc(dataset, w, cps, labels, ts, **seg_kwargs):
 
 
 def evaluate_autoplait(dataset, w, cps, labels, ts, **seg_kwargs):
+    from external.competitor.autoplait import autoplait
+
     found_cps, found_labels = autoplait(dataset, ts, cps.shape[0])
 
     pred_seg_labels = create_state_labels(found_cps, found_labels, ts.shape[0])
@@ -115,6 +112,8 @@ def evaluate_autoplait(dataset, w, cps, labels, ts, **seg_kwargs):
 
 
 def evaluate_hdp_hsmm(dataset, w, cps, labels, ts, **seg_kwargs):
+    from external.competitor.hdp_hsmm import HDP_HSMM
+
     if ts.ndim == 1:
         ts = ts.reshape(-1, 1)
 
@@ -132,10 +131,12 @@ def evaluate_hdp_hsmm(dataset, w, cps, labels, ts, **seg_kwargs):
 
 
 def evaluate_ggs(dataset, w, cps, labels, ts, **seg_kwargs):
+    from aeon.annotation.ggs import GreedyGaussianSegmentation
+
     if ts.ndim == 1:
         ts = ts.reshape(-1, 1)
 
-    ggs = GreedyGaussianSegmentation(k_max=len(cps), lamb=32, random_state=1379)
+    ggs = GreedyGaussianSegmentation(k_max=seg_kwargs["max_cps"], lamb=32, random_state=1379)
 
     pred_seg_labels = ggs.fit_predict(ts)
     true_seg_labels = create_state_labels(cps, labels, ts.shape[0])
@@ -144,25 +145,30 @@ def evaluate_ggs(dataset, w, cps, labels, ts, **seg_kwargs):
     return evaluate_state_detection_algorithm(dataset, ts.shape[0], cps, found_cps, true_seg_labels, pred_seg_labels)
 
 
-def evaluate_state_detection_algorithm(dataset, n_timestamps, cps_true, cps_pred, labels_true, labels_pred):
+def evaluate_state_detection_algorithm(dataset, n_timestamps, cps_true, cps_pred, labels_true, labels_pred, verbose=0):
     f1_score = np.round(f_measure({0: cps_true}, cps_pred, margin=int(n_timestamps * .01)), 3)
     covering_score = np.round(covering({0: cps_true}, cps_pred, n_timestamps), 3)
     ami = np.round(adjusted_mutual_info_score(labels_true, labels_pred), 3)
 
-    # print(f"{dataset}: F1-Score: {f1_score}, Covering-Score: {covering_score}, AMI-Score: {ami}")
+    if verbose > 0:
+        print(f"{dataset}: F1-Score: {f1_score}, Covering-Score: {covering_score}, AMI-Score: {ami}")
+
     return dataset, cps_true.tolist(), cps_pred.tolist(), labels_pred.tolist(), f1_score, covering_score, ami
 
 
 def evaluate_candidate(dataset_name, candidate_name, eval_func, columns=None, n_jobs=1, verbose=0, **seg_kwargs):
     if dataset_name == "TSSB":
-        df = load_tssb_datasets()  # names=REOCCURING_SEGMENTS
+        df = load_tssb_datasets()
     elif dataset_name == "HAS":
         df = load_has_datasets()
     else:
         df = load_datasets(dataset_name)
 
+    # needed for GGS
+    max_cps = df.change_points.apply(len).max()
+
     df_cand = dp.map(
-        lambda _, args: eval_func(*args, **seg_kwargs),
+        lambda _, args: eval_func(*args, max_cps=max_cps, **seg_kwargs),
         tqdm(list(df.iterrows()), disable=verbose < 1),
         ret_type=list,
         verbose=0,
@@ -179,7 +185,7 @@ def evaluate_candidate(dataset_name, candidate_name, eval_func, columns=None, n_
     )
 
     print(
-        f"{dataset_name}: {candidate_name}: mean_f1_score={np.round(df_cand.f1_score.mean(), 3)}, mean_covering_score={np.round(df_cand.covering_score.mean(), 3)}, mean_ami_score={np.round(df_cand.ami.mean(), 3)}")
+        f"{dataset_name}: {candidate_name}: mean_f1_score={np.round(df_cand.f1_score.mean(), 3)}, mean_covering_score={np.round(df_cand.covering_score.mean(), 3)}, mean_ami_score={np.round(df_cand.ami_score.mean(), 3)}")
     return df_cand
 
 
@@ -189,20 +195,23 @@ def evaluate_competitor(dataset_name, exp_path, n_jobs, verbose):
 
     competitors = [
         ("CLaP", evaluate_clap),
-        ("Time2State", evaluate_time2state),
-        ("TICC", evaluate_ticc),
-        ("AutoPlait", evaluate_autoplait),
-        ("HDP-HSMM", evaluate_hdp_hsmm),
-        ("GGS", evaluate_ggs)
+        # ("Time2State", evaluate_time2state),
+        # ("TICC", evaluate_ticc),
+        # ("AutoPlait", evaluate_autoplait),
+        # ("HDP-HSMM", evaluate_hdp_hsmm),
+        # ("GGS", evaluate_ggs)
     ]
 
-    # load segmentation
-    segmentation_algorithm = "ClaSP"
-    converters = dict([(column, lambda data: np.array(eval(data))) for column in ["found_cps"]])
-    seg_df = pd.read_csv(
-        f"../experiments/segmentation/{dataset_name}_{segmentation_algorithm}.csv.gz",
-        converters=converters
-    )[["dataset", "found_cps"]]
+    # load segmentations
+    segmentations = {}
+
+    for seg_algo in ("ClaSP", "BinSeg", "Window", "FLUSS"): #
+        converters = dict([(column, lambda data: np.array(eval(data))) for column in ["found_cps"]])
+        segmentations[seg_algo] = pd.read_csv(
+            f"../experiments/segmentation/{dataset_name}_{seg_algo}.csv.gz",
+            converters=converters
+        )[["dataset", "found_cps"]]
+
 
     for candidate_name, eval_func in competitors:
         print(f"Evaluating competitor: {candidate_name}")
@@ -214,7 +223,7 @@ def evaluate_competitor(dataset_name, exp_path, n_jobs, verbose):
             columns=None,
             n_jobs=n_jobs,
             verbose=verbose,
-            segmentation=seg_df
+            segmentations=segmentations
         )
 
         df.to_csv(f"{exp_path}{dataset_name}_{candidate_name}.csv.gz", compression='gzip')
@@ -222,10 +231,10 @@ def evaluate_competitor(dataset_name, exp_path, n_jobs, verbose):
 
 if __name__ == '__main__':
     exp_path = "../experiments/state_detection/"
-    n_jobs, verbose = 50, 0
+    n_jobs, verbose = 30, 0
 
     if not os.path.exists(exp_path):
         os.mkdir(exp_path)
 
-    for bench in ("TSSB", "UTSA", "HAS"):
+    for bench in ("TSSB", "UTSA", "SKAB", "HAS"):  #
         evaluate_competitor(bench, exp_path, n_jobs, verbose)

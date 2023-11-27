@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 
 
-def load_datasets(dataset, selection=None):
+def load_datasets(dataset, selection=None, normalize=True):
     desc_filename = ABS_PATH + f"/../datasets/{dataset}/desc.txt"
     desc_file = []
 
@@ -46,13 +46,16 @@ def load_datasets(dataset, selection=None):
         else:
             ts = np.load(file=path + "data.npz")[ts_name]
 
+        # min-max normalize ts
+        if normalize: ts = normalize_time_series(ts)
+
         df.append((ts_name, int(window_size), np.array([int(_) for _ in change_points]),
                    np.array([int(_) for _ in labels]), ts))
 
     return pd.DataFrame.from_records(df, columns=["name", "window_size", "change_points", "labels", "time_series"])
 
 
-def load_tssb_datasets(names=None):
+def load_tssb_datasets(names=None, normalize=True):
     desc_filename = os.path.join(ABS_PATH, "../datasets/TSSB", "desc.txt")
     desc_file = []
 
@@ -84,12 +87,16 @@ def load_tssb_datasets(names=None):
         labels = prop_row[3]
 
         ts = np.loadtxt(fname=os.path.join(ABS_PATH, "../datasets/TSSB", ts_name + '.txt'), dtype=np.float64)
+
+        # min-max normalize ts
+        if normalize: ts = normalize_time_series(ts)
+
         df.append((ts_name, int(window_size), np.array([int(_) for _ in change_points]), np.array(labels), ts))
 
     return pd.DataFrame.from_records(df, columns=["dataset", "window_size", "change_points", "labels", "time_series"])
 
 
-def load_has_datasets(selection=None):
+def load_has_datasets(selection=None, normalize=True):
     data_path = ABS_PATH + "/../datasets/has2023_master.csv.zip"
 
     np_cols = ["change_points", "activities", "x-acc", "y-acc", "z-acc",
@@ -140,6 +147,9 @@ def load_has_datasets(selection=None):
         else:
             raise ValueError("Unknown group in HAS dataset.")
 
+        # min-max normalize ts
+        if normalize: ts = normalize_time_series(ts)
+
         df.append((ts_name, sample_rate, row.change_points, labels, ts))
 
     if selection is None:
@@ -153,7 +163,7 @@ def load_has_datasets(selection=None):
     ).iloc[selection, :]
 
 
-def load_mosad_datasets():
+def load_mosad_datasets(normalize=True):
     cp_filename = ABS_PATH + "/../datasets/MOSAD/change_points.txt"
     cp_file = []
 
@@ -179,12 +189,40 @@ def load_mosad_datasets():
         routine, subject, sensor = ts_name.split("_")
         ts = T[ts_name]
 
+        # min-max normalize ts
+        if normalize: ts = normalize_time_series(ts)
+
         df.append((ts_name, int(routine[-1]), int(subject[-1]), sensor, int(sample_rate),
                    np.array([int(_) for _ in change_points]), np.array(activities[routine[-1]]), ts))
 
     return pd.DataFrame.from_records(df,
                                      columns=["dataset", "routine", "subject", "sensor", "sample_rate", "change_points",
                                               "activities", "time_series"])
+
+
+def normalize_time_series(ts):
+    if ts.ndim == 1:
+        ts = ts.reshape(-1,1)
+
+    for dim in range(ts.shape[1]):
+        channel = ts[:,dim]
+
+        # min-max normalize channel
+        try:
+            channel = np.true_divide(channel - channel.min(), channel.max() - channel.min())
+        except FloatingPointError:
+            pass
+
+        # interpolate (if missing values are present)
+        channel[np.isinf(channel)] = np.nan
+        channel = pd.Series(channel).interpolate(limit_direction="both").to_numpy()
+
+        # there are series that still contain NaN values
+        channel[np.isnan(channel)] = 0
+
+        ts[:,dim] = channel
+
+    return ts
 
 
 @njit(fastmath=True, cache=True)
@@ -267,23 +305,3 @@ class AeonTransformerWrapper(BaseEstimator, TransformerMixin):
         df = pd.DataFrame()
         df['dim_0'] = [pd.Series(ts) for ts in X]
         return self.estimator.transform(df).to_numpy()
-
-
-def save_tikz(file_path, tikz_code):
-    with tempfile.TemporaryDirectory() as temp_dir:
-        tex_file_path = os.path.join(temp_dir, "tmp.tex")
-        pdf_file_path = os.path.join(temp_dir, "tmp.pdf")
-
-        with open(tex_file_path, "w") as file:
-            file.write(tikz_code)
-
-        subprocess.Popen([
-            "pdflatex",
-            "-interaction=nonstopmode",
-            "-halt-on-error",
-            "-output-directory",
-            temp_dir,
-            tex_file_path
-        ], stdout = subprocess.PIPE).wait()
-
-        shutil.move(pdf_file_path, file_path)
