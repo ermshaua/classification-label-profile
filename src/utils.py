@@ -52,7 +52,7 @@ def load_datasets(dataset, selection=None, normalize=True):
         df.append((ts_name, int(window_size), np.array([int(_) for _ in change_points]),
                    np.array([int(_) for _ in labels]), ts))
 
-    return pd.DataFrame.from_records(df, columns=["name", "window_size", "change_points", "labels", "time_series"])
+    return pd.DataFrame.from_records(df, columns=["dataset", "window_size", "change_points", "labels", "time_series"])
 
 
 def load_tssb_datasets(names=None, normalize=True):
@@ -201,8 +201,11 @@ def load_mosad_datasets(normalize=True):
 
 
 def normalize_time_series(ts):
+    flatten = False
+
     if ts.ndim == 1:
         ts = ts.reshape(-1,1)
+        flatten = True
 
     for dim in range(ts.shape[1]):
         channel = ts[:,dim]
@@ -221,6 +224,9 @@ def normalize_time_series(ts):
         channel[np.isnan(channel)] = 0
 
         ts[:,dim] = channel
+
+    if flatten:
+        ts = ts.flatten()
 
     return ts
 
@@ -285,23 +291,19 @@ def expand_label_sequence(labels, window_size, stride):
     return np.array(X, dtype=labels.dtype)
 
 
+def collapse_label_sequence(label_seq):
+    labels = []
+
+    for idx in range(1, len(label_seq)):
+        if label_seq[idx-1] != label_seq[idx]:
+            labels.append(label_seq[idx-1])
+
+        if idx == len(label_seq)-1:
+            labels.append(label_seq[idx])
+
+    return np.array(labels)
+
+
 def extract_cps(label_seq):
     label_diffs = label_seq[:-1] != label_seq[1:]
     return np.arange(label_seq.shape[0] - 1)[label_diffs] + 1
-
-
-class AeonTransformerWrapper(BaseEstimator, TransformerMixin):
-
-    def __init__(self, estimator):
-        self.estimator = estimator
-
-    def fit(self, X, y=None):
-        df = pd.DataFrame()
-        df['dim_0'] = [pd.Series(ts) for ts in X]
-        self.estimator.fit(df, y)
-        return self
-
-    def transform(self, X):
-        df = pd.DataFrame()
-        df['dim_0'] = [pd.Series(ts) for ts in X]
-        return self.estimator.transform(df).to_numpy()

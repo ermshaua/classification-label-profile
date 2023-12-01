@@ -1,6 +1,7 @@
 import sys
-
 sys.path.insert(0, "../")
+
+from external.competitor.time2feat import feature_extraction, feature_selection, ClusterWrapper
 
 import os
 
@@ -25,12 +26,11 @@ def evaluate_clap(dataset, w, cps, labels, ts, **seg_kwargs):
     for seg_algo, seg_df in seg_kwargs["segmentations"].items():
         found_cps = seg_df.loc[seg_df["dataset"] == dataset].iloc[0].found_cps
 
-        clap = CLaP(n_jobs=2)
+        clap = CLaP(classifier="dtw", n_jobs=2)
         clap.fit(ts, found_cps)
 
-        if clap.score() >= 0.1:
-            claps.append(clap)
-            scores.append(clap.score())
+        claps.append(clap)
+        scores.append(clap.score())
 
     if len(scores) > 0:
         clap = claps[np.argmax(scores)] # todo: merge instead of argmax
@@ -39,6 +39,41 @@ def evaluate_clap(dataset, w, cps, labels, ts, **seg_kwargs):
     else:
         found_cps = np.zeros(0, dtype=int)
         found_labels = np.zeros(1, dtype=int)
+
+    true_seg_labels = create_state_labels(cps, labels, ts.shape[0])
+    pred_seg_labels = create_state_labels(found_cps, found_labels, ts.shape[0])
+
+    return evaluate_state_detection_algorithm(dataset, ts.shape[0], cps, found_cps, true_seg_labels, pred_seg_labels)
+
+
+def evaluate_clasp2feat(dataset, w, cps, labels, ts, **seg_kwargs):
+    seg_df = seg_kwargs["segmentations"]["ClaSP"]
+
+    found_cps = seg_df.loc[seg_df["dataset"] == dataset].iloc[0].found_cps
+    found_cps = np.array([0] + found_cps.tolist() + [ts.shape[0]])
+
+    windows = [ts[found_cps[idx]:found_cps[idx+1]] for idx in range(len(found_cps)-1)]
+
+    # create equal length windows
+    min_len = np.min([w.shape[0] for w in windows])
+    windows = np.array([w[:min_len] for w in windows])
+
+    if ts.ndim == 1: windows = np.array([np.array([w]) for w in windows])
+
+    # model params
+    transform_type = 'minmax'
+    model_type = 'Hierarchical'
+    context = {'model_type': model_type, 'transform_type': transform_type}
+
+    try:
+        df_features = feature_extraction(windows, batch_size=500)
+        top_features = feature_selection(df_features, None, context)
+        df_features = df_features[top_features]
+        model = ClusterWrapper(n_clusters=np.unique(labels).shape[0], model_type=model_type, transform_type=transform_type)
+        found_labels = model.fit_predict(df_features.values)
+    except Exception as e:
+        print(f"Exception: {e}; using only zero class.")
+        found_labels = np.zeros(found_cps.shape[0]+1, dtype=int)
 
     true_seg_labels = create_state_labels(cps, labels, ts.shape[0])
     pred_seg_labels = create_state_labels(found_cps, found_labels, ts.shape[0])
@@ -195,6 +230,7 @@ def evaluate_competitor(dataset_name, exp_path, n_jobs, verbose):
 
     competitors = [
         ("CLaP", evaluate_clap),
+        # ("ClaSP2Feat", evaluate_clasp2feat)
         # ("Time2State", evaluate_time2state),
         # ("TICC", evaluate_ticc),
         # ("AutoPlait", evaluate_autoplait),
@@ -205,7 +241,7 @@ def evaluate_competitor(dataset_name, exp_path, n_jobs, verbose):
     # load segmentations
     segmentations = {}
 
-    for seg_algo in ("ClaSP", "BinSeg", "Window", "FLUSS"): #
+    for seg_algo in ("ClaSP",): #
         converters = dict([(column, lambda data: np.array(eval(data))) for column in ["found_cps"]])
         segmentations[seg_algo] = pd.read_csv(
             f"../experiments/segmentation/{dataset_name}_{seg_algo}.csv.gz",
