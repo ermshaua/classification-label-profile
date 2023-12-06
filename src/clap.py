@@ -1,16 +1,13 @@
 import hashlib
-
 import numpy as np
 from aeon.classification.convolution_based import RocketClassifier
-from aeon.classification.dictionary_based import WEASEL_V2
-from aeon.classification.shapelet_based._rdst import RDSTClassifier
-from aeon.classification.distance_based import KNeighborsTimeSeriesClassifier
 from aeon.classification.deep_learning import IndividualInceptionClassifier
-from claspy.nearest_neighbour import KSubsequenceNeighbours
+from aeon.classification.dictionary_based import WEASEL_V2
+from aeon.classification.distance_based import KNeighborsTimeSeriesClassifier
+from aeon.classification.shapelet_based._rdst import RDSTClassifier
 from claspy.window_size import map_window_size_methods
-from scipy.stats import ranksums, wilcoxon
 from sklearn.exceptions import NotFittedError
-from sklearn.metrics import confusion_matrix, f1_score, roc_auc_score
+from sklearn.metrics import confusion_matrix, f1_score
 from sklearn.model_selection import KFold
 
 from src.utils import create_state_labels
@@ -82,10 +79,7 @@ class CLaP:
             X_test, y_test = X[test_idx], y[test_idx]
 
             if self.classifier == "rocket":
-                clf = RocketClassifier(
-                    n_jobs=self.n_jobs,
-                    random_state=self.random_state,
-                )
+                clf = RocketClassifier(n_jobs=self.n_jobs, random_state=self.random_state)
             elif self.classifier == "weasel":
                 clf = WEASEL_V2(random_state=self.random_state, n_jobs=self.n_jobs)
             elif self.classifier == "rdst":
@@ -99,37 +93,6 @@ class CLaP:
 
             y_true[test_idx] = y_test
             y_pred[test_idx] = clf.fit(X_train, y_train).predict(X_test)
-
-        return y_true, y_pred
-
-    def _cross_val_knn(self, time_series, y):
-        knn = KSubsequenceNeighbours(
-            window_size=self.window_size
-        ).fit(time_series)
-
-        y_true = y[:-self.window_size + 1]
-
-        n_timepoints, k_neighbours = knn.offsets.shape
-        knn_labels = np.zeros(shape=(k_neighbours, n_timepoints), dtype=int)
-
-        for i_neighbor in range(k_neighbours):
-            neighbours = knn.offsets[:, i_neighbor]
-            knn_labels[i_neighbor] = y_true[neighbours]
-
-        y_pred = np.zeros_like(y_true)
-
-        for idx in range(n_timepoints):
-            neigh_labels = knn_labels[:, idx]
-            u_labels, counts = np.unique(neigh_labels, return_counts=True)
-            y_pred[idx] = u_labels[np.argmax(counts)]
-
-        cps = np.array([idx for idx in range(y_true.shape[0] - 1) if y_true[idx] != y_true[idx + 1]])
-        labels = np.array(
-            [y[idx] for idx in range(y_true.shape[0] - 1) if y_true[idx] != y_true[idx + 1]] + [y_true[-1]])
-
-        for idx, split_idx in enumerate(cps):
-            exclusion_zone = np.arange(split_idx - self.window_size, split_idx)  # + 1
-            y_pred[exclusion_zone] = labels[idx + 1]
 
         return y_true, y_pred
 
@@ -155,49 +118,6 @@ class CLaP:
         # randomize order
         args = np.random.choice(X_sel.shape[0], X_sel.shape[0], replace=False)
         return X_sel[args], y_sel[args]
-
-    def estimate_significance_level(self, y_true, y_pred, mask1, mask2, n_iter=1000):
-        p_vals = []
-
-        for _ in range(n_iter):
-            rand1_idx = np.random.choice(np.arange(y_true.shape[0])[np.logical_or(mask1, mask2)], np.sum(mask1),
-                                         replace=True)
-            rand2_idx = np.random.choice(np.arange(y_true.shape[0])[np.logical_or(mask1, mask2)], np.sum(mask2),
-                                         replace=True)
-
-            # create samples
-            x1_rand, x2_rand = y_pred[rand1_idx], y_pred[rand2_idx]
-
-            if x1_rand.shape[0] == 0 or x2_rand.shape[0] == 0:
-                continue
-
-            # resampling (currently decreases performance)
-            # x1_rand = x1_rand[np.random.choice(x1_rand.shape[0], self.sample_size // 2, replace=True)]
-            # x2_rand = x2_rand[np.random.choice(x2_rand.shape[0], self.sample_size // 2, replace=True)]
-
-            _, p_rand = ranksums(x1_rand, x2_rand)
-            p_vals.append(p_rand)
-
-        if len(p_vals) > 0:
-            return np.mean(p_vals)
-
-        return 0.
-
-    def _test_ranksums(self, y_true, y_pred, mask1, mask2):
-        alpha = self.estimate_significance_level(y_true, y_pred, mask1, mask2)
-
-        # create samples
-        x1, x2 = y_pred[mask1], y_pred[mask2]
-
-        if x1.shape[0] == 0 or x2.shape[0] == 0:
-            return True
-
-        # resampling (currently decreases performance)
-        # x1 = x1[np.random.choice(x1.shape[0], self.sample_size // 2, replace=True)]
-        # x2 = x2[np.random.choice(x2.shape[0], self.sample_size // 2, replace=True)]
-
-        _, p = ranksums(x1, x2)
-        return p < alpha
 
     def fit(self, time_series, change_points, labels=None):
         np.random.seed(self.random_state)
@@ -225,142 +145,103 @@ class CLaP:
             labels = np.arange(change_points.shape[0] + 1)
 
         X, y = self._create_dataset(time_series, change_points, labels)
-        # y = create_state_labels(change_points, labels, time_series.shape[0])
         merged = True
 
         ignore_cache = set()
 
-        # y_true, y_pred = self.cross_val_knn(time_series, y)
         y_true, y_pred = self._cross_val_classifier(*self._subselect_X_y(X, y))
 
         while merged and np.unique(labels).shape[0] > 1:
             unique_labels = np.unique(labels)
 
-            conf_matrix = confusion_matrix(y_true, y_pred).astype(float)
-
-            # calculate label distribution (priors)
-            labels_disb = np.zeros(conf_matrix.shape[0], dtype=float)
-
-            for idx in range(conf_matrix.shape[0]):
-                labels_disb[idx] = np.sum(conf_matrix[idx]) / y_true.shape[0]
-
-            max_confs = np.zeros(conf_matrix.shape[0], dtype=float)
-            arg_max_confs = np.zeros(conf_matrix.shape[0], dtype=int)
+            conf_loss = np.zeros(unique_labels.shape[0], dtype=float)
+            conf_index = np.zeros(unique_labels.shape[0], dtype=int)
 
             # calculate confusions
-            for idx in range(conf_matrix.shape[0]):
-                # normalize conf matrix
-                conf_matrix[idx] /= np.sum(conf_matrix[idx])
-
+            for idx, conf in enumerate(confusion_matrix(y_true, y_pred)):
                 # drop TPs
-                tmp = conf_matrix[idx].copy()
+                tmp = conf.copy()
                 tmp[idx] = 0
 
                 # store most confused label
-                arg_max_confs[idx] = np.argmax(tmp)
-                max_confs[idx] = np.max(tmp)
+                conf_index[idx] = np.argmax(tmp)
+                conf_loss[idx] = np.max(tmp) / np.sum(conf)
 
             merged = False
 
-            total_max_confs = np.zeros(conf_matrix.shape[0], dtype=float)
+            # merge most confused classes (with descending confusion loss)
+            for idx in np.argsort(conf_loss)[::-1]:
+                label1, label2 = unique_labels[idx], unique_labels[conf_index[idx]]
 
-            for idx in range(max_confs.shape[0]): # todo: use confusion loss directly?
-                # total_max_confs[idx] = (max_confs[idx] + max_confs[arg_max_confs[idx]]) / 2
-                merge_label1 = unique_labels[idx]
-                merge_label2 = unique_labels[arg_max_confs[idx]]
-
-                conf_label1 = np.sum(np.logical_and(y_true == merge_label1, y_pred != merge_label1))
-                conf_label2 = np.sum(np.logical_and(y_true == merge_label2, y_pred != merge_label2))
-
-                single_conf = (conf_label1 + conf_label2) / np.sum(np.logical_or(y_true == merge_label1, y_true == merge_label2))
-
-                conf_label_merged = np.sum(np.logical_and(
-                    np.logical_or(y_true == merge_label1, y_true == merge_label2),
-                    np.logical_and(y_pred != merge_label1, y_pred != merge_label2)
-                )) / np.sum(np.logical_or(y_true == merge_label1, y_true == merge_label2))
-
-                total_max_confs[idx] = single_conf - conf_label_merged
-
-            # merge most confused class (with descending priority)
-            for idx in np.argsort(total_max_confs)[::-1]: # todo: use priority queue
-                merge_label1 = unique_labels[idx]
-                merge_label2 = unique_labels[arg_max_confs[idx]]
-
-                if merge_label1 not in labels or merge_label2 not in labels:
+                if label1 not in labels or label2 not in labels:
                     continue
 
-                if merge_label1 == merge_label2:
+                if label1 == label2:
                     continue
 
-                # order merge labels (ascending)
-                merge_label1, merge_label2 = np.sort([merge_label1, merge_label2])
+                test_idx = np.logical_or(y_true == label1, y_true == label2)
+                test_key = hashlib.sha256(test_idx.tobytes()).hexdigest()
 
-                test_idx = np.logical_or(y_true == merge_label1, y_true == merge_label2)
-                test_idx_hash = hashlib.sha256(test_idx.tobytes()).hexdigest()
-
-                if test_idx_hash in ignore_cache:
+                if test_key in ignore_cache:
                     continue
 
-                conf_label1 = np.sum(np.logical_and(y_true == merge_label1, y_pred != merge_label1))
-                conf_label2 = np.sum(np.logical_and(y_true == merge_label2, y_pred != merge_label2))
+                _y_true, _y_pred = y_true.copy(), y_pred.copy()
 
-                single_conf = (conf_label1 + conf_label2) / np.sum(np.logical_or(y_true == merge_label1, y_true == merge_label2))
+                _y_true[_y_true == label2] = label1
+                _y_pred[_y_pred == label2] = label1
 
-                conf_label_merged = np.sum(np.logical_and(
-                    np.logical_or(y_true == merge_label1, y_true == merge_label2),
-                    np.logical_and(y_pred != merge_label1, y_pred != merge_label2)
-                )) / np.sum(np.logical_or(y_true == merge_label1, y_true == merge_label2))
-
-                conf_loss = single_conf - conf_label_merged
-
-                label_part = np.sum(np.logical_or(y_true == merge_label1, y_true == merge_label2)) / y_true.shape[0]
-
-                # random counterpart
-                rand_conf_label1 = np.sum(y_true == merge_label1) * np.sum(y_true != merge_label1) / y_true.shape[0]
-                rand_conf_label2 = np.sum(y_true == merge_label2) * np.sum(y_true != merge_label2) / y_true.shape[0]
-
-                rand_single_conf = (rand_conf_label1 + rand_conf_label2) / np.sum(np.logical_or(y_true == merge_label1, y_true == merge_label2))
-
-                rand_conf_label_merged = np.sum(np.logical_or(y_true == merge_label1, y_true == merge_label2)) * np.sum(np.logical_and(y_true != merge_label1, y_true != merge_label2)) / y_true.shape[0]
-                rand_conf_label_merged /= np.sum(np.logical_or(y_true == merge_label1, y_true == merge_label2))
-
-                rand_conf_loss = rand_single_conf - rand_conf_label_merged
-
-                if conf_loss < rand_conf_loss:
-                    ignore_cache.add(test_idx_hash)
+                if self._classification_gain(y_true, y_pred) > self._classification_gain(_y_true, _y_pred):
+                    ignore_cache.add(test_key)
                     continue
 
-                labels[labels == merge_label2] = merge_label1
-                y[y == merge_label2] = merge_label1
+                label1, label2 = np.sort([label1, label2])
 
-                y_true[y_true == merge_label2] = merge_label1
-                y_pred[y_pred == merge_label2] = merge_label1
+                labels[labels == label2] = label1
+                y[y == label2] = label1
+
+                y_true[y_true == label2] = label1
+                y_pred[y_pred == label2] = label1
 
                 merged = True
                 break
 
-        self.labels = labels - labels.min()
+        # map labels from 0 to n-1
+        label_mapping = {label: idx for idx, label in enumerate(np.unique(labels))}
+
+        self.labels = np.array([label_mapping[label] for label in labels], dtype=int)
         self.y_true, self.y_pred = y_true, y_pred
         self.cross_val_score = f1_score(self.y_true, self.y_pred, average="macro")
 
         self.is_fitted = True
         return self
 
-    def _classification_gain(self, y_true, y_pred, n_iter=1000):
-        np.random.seed(self.random_state)
+    def random_f1_score(self, y_true):
+        labels = np.unique(y_true)
+
+        score = 0
+
+        for label in labels:
+            pos_instances = np.sum(y_true == label)
+            neg_instances = np.sum(y_true != label)
+
+            tp = pos_instances * pos_instances / y_true.shape[0]
+            fn = pos_instances * neg_instances / y_true.shape[0]
+            fp = neg_instances * pos_instances / y_true.shape[0]
+
+            pre = tp / (tp + fp)
+            re = tp / (tp + fn)
+
+            if pre + re > 0:
+                score += 2 * (pre * re) / (pre + re)
+
+        return score / labels.shape[0]
+
+    def _classification_gain(self, y_true, y_pred):
         cross_val_score = f1_score(y_true, y_pred, average="macro")
-        scores = []
+        rand_score = self.random_f1_score(y_true)
+        return cross_val_score - rand_score
 
-        for idx in range(n_iter):
-            y_true_rand = np.random.choice(y_true, y_true.shape[0], replace=True)
-            y_pred_rand = np.random.choice(y_pred, y_pred.shape[0], replace=True)
-
-            rand_score = f1_score(y_true_rand, y_pred_rand, average="macro")
-            scores.append((cross_val_score - rand_score))
-
-        return np.mean(scores)
-
-    def score(self, n_iter=1000):
+    def score(self):
         return self._classification_gain(self.y_true, self.y_pred)
 
     def get_segment_labels(self):
