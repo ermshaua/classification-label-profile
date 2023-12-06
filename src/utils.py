@@ -140,9 +140,9 @@ def load_has_datasets(selection=None, normalize=True):
                 row["x-mag"].reshape(-1, 1),
                 row["y-mag"].reshape(-1, 1),
                 row["z-mag"].reshape(-1, 1),
-                row["lat"].reshape(-1, 1),
-                row["lon"].reshape(-1, 1),
-                row["speed"].reshape(-1, 1)
+                # row["lat"].reshape(-1, 1),
+                # row["lon"].reshape(-1, 1),
+                # row["speed"].reshape(-1, 1)
             ))
         else:
             raise ValueError("Unknown group in HAS dataset.")

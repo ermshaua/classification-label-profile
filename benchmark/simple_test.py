@@ -50,7 +50,7 @@ if __name__ == '__main__':
 
     found_cps = seg_df.loc[seg_df["dataset"] == dataset].iloc[0].found_cps
 
-    clap = CLaP(classifier="rocket", n_jobs=4)
+    clap = CLaP(n_jobs=4)
     clap.fit(ts, found_cps)
 
     found_cps = clap.get_change_points()

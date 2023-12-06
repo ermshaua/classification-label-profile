@@ -247,12 +247,10 @@ class CLaP:
             max_confs = np.zeros(conf_matrix.shape[0], dtype=float)
             arg_max_confs = np.zeros(conf_matrix.shape[0], dtype=int)
 
-            # calculate conditional probabilities (posteriors)
+            # calculate confusions
             for idx in range(conf_matrix.shape[0]):
-                # P(pred = _ | true = idx)
+                # normalize conf matrix
                 conf_matrix[idx] /= np.sum(conf_matrix[idx])
-                # P(pred = _ | true = idx) * P(true = idx)
-                conf_matrix[idx] *= labels_disb[idx]
 
                 # drop TPs
                 tmp = conf_matrix[idx].copy()
@@ -260,15 +258,31 @@ class CLaP:
 
                 # store most confused label
                 arg_max_confs[idx] = np.argmax(tmp)
-
-                n_preds = np.sum(unique_labels[np.argmax(tmp)] == y_pred)
-                # P(true = idx | pred = argmax) = P(pred = argmax | true = idx) * P(true = idx) / P(pred = argmax)
-                max_confs[idx] = np.max(tmp) / (n_preds / y_pred.shape[0])
+                max_confs[idx] = np.max(tmp)
 
             merged = False
 
+            total_max_confs = np.zeros(conf_matrix.shape[0], dtype=float)
+
+            for idx in range(max_confs.shape[0]): # todo: use confusion loss directly?
+                # total_max_confs[idx] = (max_confs[idx] + max_confs[arg_max_confs[idx]]) / 2
+                merge_label1 = unique_labels[idx]
+                merge_label2 = unique_labels[arg_max_confs[idx]]
+
+                conf_label1 = np.sum(np.logical_and(y_true == merge_label1, y_pred != merge_label1))
+                conf_label2 = np.sum(np.logical_and(y_true == merge_label2, y_pred != merge_label2))
+
+                single_conf = (conf_label1 + conf_label2) / np.sum(np.logical_or(y_true == merge_label1, y_true == merge_label2))
+
+                conf_label_merged = np.sum(np.logical_and(
+                    np.logical_or(y_true == merge_label1, y_true == merge_label2),
+                    np.logical_and(y_pred != merge_label1, y_pred != merge_label2)
+                )) / np.sum(np.logical_or(y_true == merge_label1, y_true == merge_label2))
+
+                total_max_confs[idx] = single_conf - conf_label_merged
+
             # merge most confused class (with descending priority)
-            for idx in np.argsort(max_confs)[::-1]:
+            for idx in np.argsort(total_max_confs)[::-1]: # todo: use priority queue
                 merge_label1 = unique_labels[idx]
                 merge_label2 = unique_labels[arg_max_confs[idx]]
 
@@ -279,7 +293,7 @@ class CLaP:
                     continue
 
                 # order merge labels (ascending)
-                # merge_label1, merge_label2 = np.sort([merge_label1, merge_label2])
+                merge_label1, merge_label2 = np.sort([merge_label1, merge_label2])
 
                 test_idx = np.logical_or(y_true == merge_label1, y_true == merge_label2)
                 test_idx_hash = hashlib.sha256(test_idx.tobytes()).hexdigest()
@@ -287,7 +301,32 @@ class CLaP:
                 if test_idx_hash in ignore_cache:
                     continue
 
-                if max_confs[idx] < 2 * labels_disb[arg_max_confs[idx]]:
+                conf_label1 = np.sum(np.logical_and(y_true == merge_label1, y_pred != merge_label1))
+                conf_label2 = np.sum(np.logical_and(y_true == merge_label2, y_pred != merge_label2))
+
+                single_conf = (conf_label1 + conf_label2) / np.sum(np.logical_or(y_true == merge_label1, y_true == merge_label2))
+
+                conf_label_merged = np.sum(np.logical_and(
+                    np.logical_or(y_true == merge_label1, y_true == merge_label2),
+                    np.logical_and(y_pred != merge_label1, y_pred != merge_label2)
+                )) / np.sum(np.logical_or(y_true == merge_label1, y_true == merge_label2))
+
+                conf_loss = single_conf - conf_label_merged
+
+                label_part = np.sum(np.logical_or(y_true == merge_label1, y_true == merge_label2)) / y_true.shape[0]
+
+                # random counterpart
+                rand_conf_label1 = np.sum(y_true == merge_label1) * np.sum(y_true != merge_label1) / y_true.shape[0]
+                rand_conf_label2 = np.sum(y_true == merge_label2) * np.sum(y_true != merge_label2) / y_true.shape[0]
+
+                rand_single_conf = (rand_conf_label1 + rand_conf_label2) / np.sum(np.logical_or(y_true == merge_label1, y_true == merge_label2))
+
+                rand_conf_label_merged = np.sum(np.logical_or(y_true == merge_label1, y_true == merge_label2)) * np.sum(np.logical_and(y_true != merge_label1, y_true != merge_label2)) / y_true.shape[0]
+                rand_conf_label_merged /= np.sum(np.logical_or(y_true == merge_label1, y_true == merge_label2))
+
+                rand_conf_loss = rand_single_conf - rand_conf_label_merged
+
+                if conf_loss < rand_conf_loss:
                     ignore_cache.add(test_idx_hash)
                     continue
 

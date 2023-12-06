@@ -26,7 +26,7 @@ def evaluate_clap(dataset, w, cps, labels, ts, **seg_kwargs):
     for seg_algo, seg_df in seg_kwargs["segmentations"].items():
         found_cps = seg_df.loc[seg_df["dataset"] == dataset].iloc[0].found_cps
 
-        clap = CLaP(classifier="dtw", n_jobs=2)
+        clap = CLaP(n_jobs=2)
         clap.fit(ts, found_cps)
 
         claps.append(clap)
@@ -267,10 +267,10 @@ def evaluate_competitor(dataset_name, exp_path, n_jobs, verbose):
 
 if __name__ == '__main__':
     exp_path = "../experiments/state_detection/"
-    n_jobs, verbose = 30, 0
+    n_jobs, verbose = 50, 0
 
     if not os.path.exists(exp_path):
         os.mkdir(exp_path)
 
-    for bench in ("TSSB", "UTSA", "SKAB", "HAS"):  #
+    for bench in ("TSSB", "UTSA", "SKAB", "HAS"): #
         evaluate_competitor(bench, exp_path, n_jobs, verbose)

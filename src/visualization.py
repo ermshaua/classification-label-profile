@@ -104,15 +104,16 @@ def plot_state_detection(title, time_series, state_seq, change_points=None, labe
     for dim, ax in enumerate(axes):
         if dim < time_series.shape[1]:
             series = time_series[:,dim]
-            segments = [0] + change_points.tolist() + [series.shape[0]]
-            colors = label_colours
-            annotation = labels
         else:
             series = state_seq
-            segments = [0] + extract_cps(state_seq).tolist() + [series.shape[0]]
-            colors = state_colours
-            annotation = collapse_label_sequence(state_seq)
+            # segments = [0] + extract_cps(state_seq).tolist() + [series.shape[0]]
+            # colors = state_colours
+            # annotation = collapse_label_sequence(state_seq)
 
+
+        segments = [0] + change_points.tolist() + [series.shape[0]]
+        colors = label_colours
+        annotation = labels
 
         if len(series) > 0:
             for idx in np.arange(0, len(segments) - 1):

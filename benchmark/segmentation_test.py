@@ -21,7 +21,6 @@ import numpy as np
 
 np.random.seed(1379)
 
-
 def evaluate_clasp(dataset, w, cps, labels, ts, **seg_kwargs):
     if ts.ndim == 1:
         clasp = BinaryClaSPSegmentation(n_jobs=2)
@@ -35,8 +34,7 @@ def evaluate_clasp(dataset, w, cps, labels, ts, **seg_kwargs):
 
             window_sizes.append(clasp.window_size)
             profiles.append(clasp.profile)
-            scores.extend(
-                clasp.scores)  # todo: this should be fixed in claspy: np.array(clasp.change_points, dtype=int)
+            scores.extend(clasp.scores)  # todo: this should be fixed in claspy: np.array(clasp.change_points, dtype=int)
             found_cps.extend(clasp.change_points)
             ind.extend([len(window_sizes) - 1] * len(clasp.change_points))
 
@@ -46,11 +44,10 @@ def evaluate_clasp(dataset, w, cps, labels, ts, **seg_kwargs):
         found_cps = np.array(found_cps)
         scores = np.array(scores)
 
-        min_match = int(np.log2(len(profiles)))
+        min_match = 2 # int(np.log2(len(profiles)))
 
-        if len(found_cps) >= min_match:
-            clu = AgglomerativeClustering(n_clusters=None, linkage="average",
-                                          distance_threshold=5 * np.mean(window_sizes))
+        if len(found_cps) > 1:
+            clu = AgglomerativeClustering(n_clusters=None, linkage="average", distance_threshold=5 * np.mean(window_sizes))
             clusters = clu.fit_predict(found_cps.reshape(-1, 1))
 
             merged_cps = []
@@ -63,8 +60,6 @@ def evaluate_clasp(dataset, w, cps, labels, ts, **seg_kwargs):
                 merged_cps.append(int(np.mean(candidates)))
 
             found_cps = np.sort(merged_cps)
-        else:
-            found_cps = np.array([])
 
     return evalute_segmentation_algorithm(dataset, ts.shape[0], cps, found_cps)
 
@@ -144,7 +139,7 @@ def evalute_segmentation_algorithm(dataset, n_timestamps, cps_true, cps_pred, pr
     f1_score = np.round(f_measure({0: cps_true}, cps_pred, margin=int(n_timestamps * .01)), 3)
     covering_score = np.round(covering({0: cps_true}, cps_pred, n_timestamps), 3)
 
-    print(f"{dataset}: F1-Score: {f1_score}, Covering-Score: {covering_score} Found CPs: {cps_pred}")
+    # print(f"{dataset}: F1-Score: {f1_score}, Covering-Score: {covering_score} Found CPs: {cps_pred}")
 
     if profile is not None:
         return dataset, cps_true.tolist(), cps_pred.tolist(), f1_score, covering_score, profile.tolist()
@@ -188,12 +183,12 @@ def evaluate_competitor(dataset_name, exp_path, n_jobs, verbose):
 
     competitors = [
         ("ClaSP", evaluate_clasp),
-        ("BinSeg", evaluate_binseg),
-        ("Window", evaluate_window),
-        ("Pelt", evaluate_pelt),
-        ("FLUSS", evaluate_fluss),
-        ("DDRE", evaluate_ddre),
-        ("RuLSIF", evaluate_rulsif)
+        # ("BinSeg", evaluate_binseg),
+        # ("Window", evaluate_window),
+        # ("Pelt", evaluate_pelt),
+        # ("FLUSS", evaluate_fluss),
+        # ("DDRE", evaluate_ddre),
+        # ("RuLSIF", evaluate_rulsif)
     ]
 
     for candidate_name, eval_func in competitors:
@@ -212,10 +207,10 @@ def evaluate_competitor(dataset_name, exp_path, n_jobs, verbose):
 
 if __name__ == '__main__':
     exp_path = "../experiments/segmentation/"
-    n_jobs, verbose = 30, 0
+    n_jobs, verbose = 50, 0
 
     if not os.path.exists(exp_path):
         os.mkdir(exp_path)
 
-    for bench in ("SKAB",): # "TSSB", "UTSA", "HAS"
+    for bench in ("SKAB", "HAS"): # "TSSB", "UTSA",
         evaluate_competitor(bench, exp_path, n_jobs, verbose)
