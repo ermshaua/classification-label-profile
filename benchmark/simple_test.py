@@ -27,7 +27,7 @@ np.random.seed(1379)
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
 
-    benchmark = "HAS"
+    benchmark = "TSSB"
 
     # Ham, MelbournePedestrian, Crop
     if benchmark == "TSSB":
@@ -37,7 +37,7 @@ if __name__ == '__main__':
     else:
         df_data = load_datasets(benchmark)
 
-    idx = 120 # 15, 43
+    idx = 15 # 15, 43
     dataset, w, cps, labels, ts = df_data.iloc[idx, :]
 
     # load segmentation for ClaP

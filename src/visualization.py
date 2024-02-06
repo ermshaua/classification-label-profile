@@ -56,10 +56,10 @@ def plot_time_series(title, time_series, change_points=None, labels=None, file_p
                 )
 
         for tick in ax.xaxis.get_major_ticks():
-            tick.label.set_fontsize(font_size)
+            tick.label1.set_fontsize(font_size)
 
         for tick in ax.yaxis.get_major_ticks():
-            tick.label.set_fontsize(font_size)
+            tick.label1.set_fontsize(font_size)
 
     axes[0].set_title(title, fontsize=font_size)
 
@@ -124,10 +124,10 @@ def plot_state_detection(title, time_series, state_seq, change_points=None, labe
                 )
 
         for tick in ax.xaxis.get_major_ticks():
-            tick.label.set_fontsize(font_size)
+            tick.label1.set_fontsize(font_size)
 
         for tick in ax.yaxis.get_major_ticks():
-            tick.label.set_fontsize(font_size)
+            tick.label1.set_fontsize(font_size)
 
     axes[0].set_title(title, fontsize=font_size)
 

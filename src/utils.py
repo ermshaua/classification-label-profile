@@ -153,9 +153,7 @@ def load_has_datasets(selection=None, normalize=True):
         df.append((ts_name, sample_rate, row.change_points, labels, ts))
 
     if selection is None:
-        selection = df_has.ts_challenge_id
-    else:
-        selection = np.arange(len(selection))
+        selection = np.arange(df_has.shape[0])
 
     return pd.DataFrame.from_records(
         df,

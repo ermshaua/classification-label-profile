@@ -191,8 +191,8 @@ class CLaP:
                 _y_pred[_y_pred == label2] = label1
 
                 if self._classification_gain(y_true, y_pred) > self._classification_gain(_y_true, _y_pred):
-                    ignore_cache.add(test_key)
-                    continue
+                   ignore_cache.add(test_key)
+                   continue
 
                 label1, label2 = np.sort([label1, label2])
 
