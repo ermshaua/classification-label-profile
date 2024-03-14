@@ -1,5 +1,6 @@
 import hashlib
 import numpy as np
+import pandas as pd
 from aeon.classification.convolution_based import RocketClassifier
 from aeon.classification.deep_learning import IndividualInceptionClassifier
 from aeon.classification.dictionary_based import WEASEL_V2
@@ -7,7 +8,8 @@ from aeon.classification.distance_based import KNeighborsTimeSeriesClassifier
 from aeon.classification.shapelet_based._rdst import RDSTClassifier
 from claspy.window_size import map_window_size_methods
 from sklearn.exceptions import NotFittedError
-from sklearn.metrics import confusion_matrix, f1_score
+from sklearn.metrics import confusion_matrix, f1_score, log_loss, adjusted_mutual_info_score, hamming_loss, \
+    roc_auc_score
 from sklearn.model_selection import KFold
 
 from src.utils import create_state_labels
@@ -151,6 +153,8 @@ class CLaP:
 
         y_true, y_pred = self._cross_val_classifier(*self._subselect_X_y(X, y))
 
+        tmp_df = []
+
         while merged and np.unique(labels).shape[0] > 1:
             unique_labels = np.unique(labels)
 
@@ -190,11 +194,30 @@ class CLaP:
                 _y_true[_y_true == label2] = label1
                 _y_pred[_y_pred == label2] = label1
 
-                if self._classification_gain(y_true, y_pred) > self._classification_gain(_y_true, _y_pred):
+                n_labels = np.unique(y_true).shape[0]
+                y_true_bin = np.zeros((y_true.shape[0], n_labels), int)
+                for idx in range(y_true.shape[0]): y_true_bin[idx][y_true[idx] % n_labels] = 1
+                y_pred_bin = np.zeros((y_true.shape[0], n_labels), int)
+                for idx in range(y_pred.shape[0]): y_pred_bin[idx][y_pred[idx] % n_labels] = 1
+
+                n_labels = np.unique(_y_true).shape[0]
+                _y_true_bin = np.zeros((_y_true.shape[0], n_labels), int)
+                for idx in range(_y_true.shape[0]): _y_true_bin[idx][_y_true[idx] % n_labels] = 1
+                _y_pred_bin = np.zeros((_y_true.shape[0], n_labels), int)
+                for idx in range(_y_pred.shape[0]): _y_pred_bin[idx][_y_pred[idx] % n_labels] = 1
+
+                # if self._classification_gain(y_true, y_pred) > self._classification_gain(_y_true, _y_pred):
+                # if f1_score(y_true, y_pred, average="macro") > f1_score(_y_true, _y_pred, average="macro"):
+                if -log_loss(y_true_bin, y_pred_bin) > -log_loss(_y_true_bin, _y_pred_bin):
+                # if adjusted_mutual_info_score(y_true, y_pred) > adjusted_mutual_info_score(_y_true, _y_pred):
+                # if -hamming_loss(y_true, y_pred) > -hamming_loss(_y_true, _y_pred):
+                # if roc_auc_score(y_true, y_pred_bin, multi_class="ovo") > roc_auc_score(_y_true, _y_pred_bin, multi_class="ovo"):
                    ignore_cache.add(test_key)
                    continue
 
                 label1, label2 = np.sort([label1, label2])
+
+                tmp_df.append((label1, label2, -log_loss(_y_true_bin, _y_pred_bin), _y_true, _y_pred))
 
                 labels[labels == label2] = label1
                 y[y == label2] = label1
@@ -204,6 +227,8 @@ class CLaP:
 
                 merged = True
                 break
+
+        # pd.DataFrame.from_records(tmp_df, columns=["label1", "label2", "neg_log_loss", "y_true", "y_pred"]).to_csv("../tmp/clap_neg_log_loss.csv", index=False)
 
         # map labels from 0 to n-1
         label_mapping = {label: idx for idx, label in enumerate(np.unique(labels))}
