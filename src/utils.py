@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 
 
-def load_datasets(dataset, selection=None, normalize=True):
+def load_datasets(dataset, selection=None):
     desc_filename = ABS_PATH + f"/../datasets/{dataset}/desc.txt"
     desc_file = []
 
@@ -46,16 +46,13 @@ def load_datasets(dataset, selection=None, normalize=True):
         else:
             ts = np.load(file=path + "data.npz")[ts_name]
 
-        # min-max normalize ts
-        if normalize: ts = normalize_time_series(ts)
-
         df.append((ts_name, int(window_size), np.array([int(_) for _ in change_points]),
                    np.array([int(_) for _ in labels]), ts))
 
     return pd.DataFrame.from_records(df, columns=["dataset", "window_size", "change_points", "labels", "time_series"])
 
 
-def load_tssb_datasets(names=None, normalize=True):
+def load_tssb_datasets(names=None):
     desc_filename = os.path.join(ABS_PATH, "../datasets/TSSB", "desc.txt")
     desc_file = []
 
@@ -88,15 +85,12 @@ def load_tssb_datasets(names=None, normalize=True):
 
         ts = np.loadtxt(fname=os.path.join(ABS_PATH, "../datasets/TSSB", ts_name + '.txt'), dtype=np.float64)
 
-        # min-max normalize ts
-        if normalize: ts = normalize_time_series(ts)
-
         df.append((ts_name, int(window_size), np.array([int(_) for _ in change_points]), np.array(labels), ts))
 
     return pd.DataFrame.from_records(df, columns=["dataset", "window_size", "change_points", "labels", "time_series"])
 
 
-def load_has_datasets(selection=None, normalize=True):
+def load_has_datasets(selection=None):
     data_path = ABS_PATH + "/../datasets/has2023_master.csv.zip"
 
     np_cols = ["change_points", "activities", "x-acc", "y-acc", "z-acc",
@@ -147,9 +141,6 @@ def load_has_datasets(selection=None, normalize=True):
         else:
             raise ValueError("Unknown group in HAS dataset.")
 
-        # min-max normalize ts
-        if normalize: ts = normalize_time_series(ts)
-
         df.append((ts_name, sample_rate, row.change_points, labels, ts))
 
     if selection is None:
@@ -161,7 +152,7 @@ def load_has_datasets(selection=None, normalize=True):
     ).iloc[selection, :]
 
 
-def load_mosad_datasets(normalize=True):
+def load_mosad_datasets():
     cp_filename = ABS_PATH + "/../datasets/MOSAD/change_points.txt"
     cp_file = []
 
@@ -187,15 +178,43 @@ def load_mosad_datasets(normalize=True):
         routine, subject, sensor = ts_name.split("_")
         ts = T[ts_name]
 
-        # min-max normalize ts
-        if normalize: ts = normalize_time_series(ts)
-
         df.append((ts_name, int(routine[-1]), int(subject[-1]), sensor, int(sample_rate),
                    np.array([int(_) for _ in change_points]), np.array(activities[routine[-1]]), ts))
 
     return pd.DataFrame.from_records(df,
                                      columns=["dataset", "routine", "subject", "sensor", "sample_rate", "change_points",
                                               "activities", "time_series"])
+
+
+def load_train_dataset():
+    train_names = [
+        'DodgerLoopDay',
+        'EEGRat',
+        'EEGRat2',
+        'FaceFour',
+        'GrandMalSeizures2',
+        'GreatBarbet1',
+        'Herring',
+        'InlineSkate',
+        'InsectEPG1',
+        'MelbournePedestrian',
+        'NogunGun',
+        'NonInvasiveFetalECGThorax1',
+        'ShapesAll',
+        'TiltECG',
+        'ToeSegmentation1',
+        'ToeSegmentation2',
+        'Trace',
+        'UWaveGestureLibraryY',
+        'UWaveGestureLibraryZ',
+        'WordSynonyms',
+        'Yoga'
+    ]
+
+    df = pd.concat([load_datasets("UTSA"), load_tssb_datasets()])
+    df = df[df["dataset"].isin(train_names)]
+
+    return df.sort_values(by="dataset")
 
 
 def normalize_time_series(ts):

@@ -13,7 +13,8 @@ from tqdm import tqdm
 
 from benchmark.metrics import f_measure, covering
 from src.clap import CLaP
-from src.utils import create_state_labels, load_tssb_datasets, load_datasets, load_has_datasets, extract_cps
+from src.utils import create_state_labels, load_tssb_datasets, load_datasets, load_has_datasets, extract_cps, \
+    load_train_dataset, normalize_time_series
 
 import numpy as np
 
@@ -26,7 +27,7 @@ def evaluate_clap(dataset, w, cps, labels, ts, **seg_kwargs):
     for seg_algo, seg_df in seg_kwargs["segmentations"].items():
         found_cps = seg_df.loc[seg_df["dataset"] == dataset].iloc[0].found_cps
 
-        clap = CLaP(n_jobs=2)
+        clap = CLaP(n_jobs=4)
         clap.fit(ts, found_cps)
 
         claps.append(clap)
@@ -43,7 +44,7 @@ def evaluate_clap(dataset, w, cps, labels, ts, **seg_kwargs):
     true_seg_labels = create_state_labels(cps, labels, ts.shape[0])
     pred_seg_labels = create_state_labels(found_cps, found_labels, ts.shape[0])
 
-    return evaluate_state_detection_algorithm(dataset, ts.shape[0], cps, found_cps, true_seg_labels, pred_seg_labels)
+    return evaluate_state_detection_algorithm(dataset, ts.shape[0], cps, found_cps, true_seg_labels, pred_seg_labels, verbose=1)
 
 
 def evaluate_clasp2feat(dataset, w, cps, labels, ts, **seg_kwargs):
@@ -88,6 +89,9 @@ def evaluate_time2state(dataset, w, cps, labels, ts, **seg_kwargs):
     params_LSE['in_channels'] = 1 if ts.ndim == 1 else ts.shape[1]
     # params_LSE['out_channels'] = 2
     # params_LSE['compared_length'] = window_size
+
+    # min-max normalize ts
+    ts = normalize_time_series(ts)
 
     if ts.ndim == 1:
         ts = ts.reshape(-1, 1)
@@ -171,7 +175,7 @@ def evaluate_ggs(dataset, w, cps, labels, ts, **seg_kwargs):
     if ts.ndim == 1:
         ts = ts.reshape(-1, 1)
 
-    ggs = GreedyGaussianSegmentation(k_max=seg_kwargs["max_cps"], lamb=32, random_state=1379)
+    ggs = GreedyGaussianSegmentation(k_max=len(cps), lamb=32, random_state=1379) # seg_kwargs["max_cps"]
 
     pred_seg_labels = ggs.fit_predict(ts)
     true_seg_labels = create_state_labels(cps, labels, ts.shape[0])
@@ -192,7 +196,9 @@ def evaluate_state_detection_algorithm(dataset, n_timestamps, cps_true, cps_pred
 
 
 def evaluate_candidate(dataset_name, candidate_name, eval_func, columns=None, n_jobs=1, verbose=0, **seg_kwargs):
-    if dataset_name == "TSSB":
+    if dataset_name == "train":
+        df = load_train_dataset()
+    elif dataset_name == "TSSB":
         df = load_tssb_datasets()
     elif dataset_name == "HAS":
         df = load_has_datasets()
@@ -200,10 +206,10 @@ def evaluate_candidate(dataset_name, candidate_name, eval_func, columns=None, n_
         df = load_datasets(dataset_name)
 
     # needed for GGS
-    max_cps = df.change_points.apply(len).max()
+    # max_cps = df.change_points.apply(len).max()
 
     df_cand = dp.map(
-        lambda _, args: eval_func(*args, max_cps=max_cps, **seg_kwargs),
+        lambda _, args: eval_func(*args, **seg_kwargs), # max_cps=max_cps,
         tqdm(list(df.iterrows()), disable=verbose < 1),
         ret_type=list,
         verbose=0,
@@ -267,10 +273,10 @@ def evaluate_competitor(dataset_name, exp_path, n_jobs, verbose):
 
 if __name__ == '__main__':
     exp_path = "../experiments/state_detection/"
-    n_jobs, verbose = 50, 0
+    n_jobs, verbose = 25, 0
 
     if not os.path.exists(exp_path):
         os.mkdir(exp_path)
 
-    for bench in ("TSSB", "UTSA", "SKAB", "HAS"): #
+    for bench in ("HAS", ): # "TSSB", "UTSA", "SKAB",
         evaluate_competitor(bench, exp_path, n_jobs, verbose)

@@ -17,7 +17,7 @@ import pandas as pd
 from tqdm import tqdm
 
 from src.utils import create_state_labels, load_tssb_datasets, create_sliding_window, expand_label_sequence, \
-    load_has_datasets, load_datasets
+    load_has_datasets, load_datasets, load_train_dataset
 
 import numpy as np
 
@@ -44,7 +44,7 @@ def evaluate_kmeans(dataset, w, cps, labels, ts, **seg_kwargs):
     sample_size = 2 * w
     stride = sample_size // 2
 
-    clf = TimeSeriesKMeans(n_clusters=np.unique(labels).shape[0], distance="msm", random_state=1379)
+    clf = TimeSeriesKMeans(n_clusters=np.unique(labels).shape[0], random_state=1379)
 
     windows = create_sliding_window(ts, sample_size, stride)
     if ts.ndim > 1: windows = np.array([w.T for w in windows])
@@ -84,7 +84,7 @@ def evaluate_kmedoids(dataset, w, cps, labels, ts, **seg_kwargs):
     sample_size = 2 * w
     stride = sample_size // 2
 
-    clf = TimeSeriesKMedoids(n_clusters=np.unique(labels).shape[0], distance="msm", random_state=1379)
+    clf = TimeSeriesKMedoids(n_clusters=np.unique(labels).shape[0], random_state=1379)
 
     windows = create_sliding_window(ts, sample_size, stride)
     if ts.ndim > 1: windows = np.array([w.T for w in windows])
@@ -173,7 +173,9 @@ def evaluate_clustering_detection_algorithm(dataset, labels_true, labels_pred):
 
 
 def evaluate_candidate(dataset_name, candidate_name, eval_func, columns=None, n_jobs=1, verbose=0, **seg_kwargs):
-    if dataset_name == "TSSB":
+    if dataset_name == "train":
+        df = load_train_dataset()
+    elif dataset_name == "TSSB":
         df = load_tssb_datasets()
     elif dataset_name == "HAS":
         df = load_has_datasets()

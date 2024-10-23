@@ -1,11 +1,12 @@
 import hashlib
 import numpy as np
 import pandas as pd
-from aeon.classification.convolution_based import RocketClassifier
-from aeon.classification.deep_learning import IndividualInceptionClassifier
+from aeon.classification.convolution_based import MultiRocketHydraClassifier, RocketClassifier
 from aeon.classification.dictionary_based import WEASEL_V2
-from aeon.classification.distance_based import KNeighborsTimeSeriesClassifier
+from aeon.classification.distance_based import ProximityForest
 from aeon.classification.shapelet_based._rdst import RDSTClassifier
+from aeon.classification.interval_based import QUANTClassifier
+from aeon.classification.feature_based import FreshPRINCEClassifier
 from claspy.window_size import map_window_size_methods
 from sklearn.exceptions import NotFittedError
 from sklearn.metrics import confusion_matrix, f1_score, log_loss, adjusted_mutual_info_score, hamming_loss, \
@@ -17,10 +18,11 @@ from src.utils import create_state_labels
 
 class CLaP:
 
-    def __init__(self, window_size="suss", classifier="rocket", n_splits=5, n_jobs=1, sample_size=1_000,
+    def __init__(self, window_size="suss", classifier="rocket", merge_score="cgain", n_splits=5, n_jobs=1, sample_size=1_000,
                  random_state=2357):
         self.window_size = window_size
         self.classifier = classifier
+        self.merge_score = merge_score
         self.n_splits = n_splits
         self.n_jobs = n_jobs
         self.random_state = random_state
@@ -80,15 +82,22 @@ class CLaP:
             X_train, y_train = X[train_idx], y[train_idx]
             X_test, y_test = X[test_idx], y[test_idx]
 
-            if self.classifier == "rocket":
+            if self.classifier == "mrhydra":
+                clf = MultiRocketHydraClassifier(n_jobs=self.n_jobs, random_state=self.random_state)
+            elif self.classifier == "rocket":
                 clf = RocketClassifier(n_jobs=self.n_jobs, random_state=self.random_state)
             elif self.classifier == "weasel":
                 clf = WEASEL_V2(random_state=self.random_state, n_jobs=self.n_jobs)
+            elif self.classifier == "quant":
+                clf = QUANTClassifier(random_state=self.random_state)
             elif self.classifier == "rdst":
                 clf = RDSTClassifier(random_state=self.random_state, n_jobs=self.n_jobs)
-            elif self.classifier == "dtw":
-                clf = KNeighborsTimeSeriesClassifier(distance="dtw", n_jobs=self.n_jobs)
+            elif self.classifier == "proximityforest":
+                clf = ProximityForest(n_jobs=self.n_jobs, random_state=self.random_state)
+            elif self.classifier == "freshprince":
+                clf = FreshPRINCEClassifier(random_state=self.random_state, n_jobs=self.n_jobs)
             elif self.classifier == "inception":
+                from aeon.classification.deep_learning import IndividualInceptionClassifier
                 clf = IndividualInceptionClassifier()
             else:
                 raise ValueError(f"The classifier {self.classifier} is not supported.")
@@ -155,6 +164,21 @@ class CLaP:
 
         tmp_df = []
 
+        if self.merge_score == "cgain":
+            scorer = self._classification_gain
+        elif self.merge_score == "f1_score":
+            scorer = lambda y_true, y_pred: f1_score(y_true, y_pred, average="macro")
+        elif self.merge_score == "log_loss":
+            scorer = lambda y_true, y_pred: -log_loss(y_true, y_pred)
+        elif self.merge_score == "ami":
+            scorer = adjusted_mutual_info_score
+        elif self.merge_score == "hamming_loss":
+            scorer = lambda y_true, y_pred: -hamming_loss(y_true, y_pred)
+        elif self.merge_score == "roc_auc":
+            scorer = lambda y_true, y_pred: roc_auc_score(y_true, y_pred, multi_class="ovo")
+        else:
+            raise ValueError(f"The merge score {self.merge_score} is not supported.")
+
         while merged and np.unique(labels).shape[0] > 1:
             unique_labels = np.unique(labels)
 
@@ -195,6 +219,10 @@ class CLaP:
                 _y_pred[_y_pred == label2] = label1
 
                 n_labels = np.unique(y_true).shape[0]
+
+                if self.merge_score != "cgain" and n_labels == 2:
+                    continue
+
                 y_true_bin = np.zeros((y_true.shape[0], n_labels), int)
                 for idx in range(y_true.shape[0]): y_true_bin[idx][y_true[idx] % n_labels] = 1
                 y_pred_bin = np.zeros((y_true.shape[0], n_labels), int)
@@ -206,18 +234,27 @@ class CLaP:
                 _y_pred_bin = np.zeros((_y_true.shape[0], n_labels), int)
                 for idx in range(_y_pred.shape[0]): _y_pred_bin[idx][_y_pred[idx] % n_labels] = 1
 
+
                 # if self._classification_gain(y_true, y_pred) > self._classification_gain(_y_true, _y_pred):
                 # if f1_score(y_true, y_pred, average="macro") > f1_score(_y_true, _y_pred, average="macro"):
-                if -log_loss(y_true_bin, y_pred_bin) > -log_loss(_y_true_bin, _y_pred_bin):
+                # if -log_loss(y_true_bin, y_pred_bin) > -log_loss(_y_true_bin, _y_pred_bin):
                 # if adjusted_mutual_info_score(y_true, y_pred) > adjusted_mutual_info_score(_y_true, _y_pred):
                 # if -hamming_loss(y_true, y_pred) > -hamming_loss(_y_true, _y_pred):
                 # if roc_auc_score(y_true, y_pred_bin, multi_class="ovo") > roc_auc_score(_y_true, _y_pred_bin, multi_class="ovo"):
+
+                ref_true = y_true_bin if self.merge_score == "log_loss" else y_true
+                ref_pred = y_pred_bin if self.merge_score == "log_loss" or self.merge_score == "roc_auc" else y_pred
+
+                curr_true = _y_true_bin if self.merge_score == "log_loss" else _y_true
+                curr_pred = _y_pred_bin if self.merge_score == "log_loss" or self.merge_score == "roc_auc" and n_labels > 2 else _y_pred
+
+                if scorer(ref_true, ref_pred) > scorer(curr_true, curr_pred):
                    ignore_cache.add(test_key)
                    continue
 
                 label1, label2 = np.sort([label1, label2])
 
-                tmp_df.append((label1, label2, -log_loss(_y_true_bin, _y_pred_bin), _y_true, _y_pred))
+                # tmp_df.append((label1, label2, -log_loss(_y_true_bin, _y_pred_bin), _y_true, _y_pred))
 
                 labels[labels == label2] = label1
                 y[y == label2] = label1
