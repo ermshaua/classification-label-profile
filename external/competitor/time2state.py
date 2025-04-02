@@ -1,4 +1,4 @@
-# taken from: https://github.com/Lab-ANT/Time2State/
+# Taken from: https://github.com/Lab-ANT/Time2State/
 
 import abc
 import math

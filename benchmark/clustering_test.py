@@ -1,10 +1,8 @@
 import os
-import shutil
 import sys
+sys.path.insert(0, "../")
 
 from sklearn.cluster import AgglomerativeClustering, SpectralClustering
-
-sys.path.insert(0, "../")
 
 from external.competitor.time2feat import feature_extraction, feature_selection, ClusterWrapper
 
@@ -23,6 +21,8 @@ import numpy as np
 
 np.random.seed(1379)
 
+
+# Runs k-Shape experiment
 def evaluate_kshape(dataset, w, cps, labels, ts, **seg_kwargs):
     # as in CLaP
     sample_size = 2 * w
@@ -39,6 +39,7 @@ def evaluate_kshape(dataset, w, cps, labels, ts, **seg_kwargs):
     return evaluate_clustering_detection_algorithm(dataset, true_seg_labels, pred_seg_labels)
 
 
+# Runs k-Means experiment
 def evaluate_kmeans(dataset, w, cps, labels, ts, **seg_kwargs):
     # as in CLaP
     sample_size = 2 * w
@@ -61,6 +62,7 @@ def evaluate_kmeans(dataset, w, cps, labels, ts, **seg_kwargs):
     return evaluate_clustering_detection_algorithm(dataset, true_seg_labels, pred_seg_labels)
 
 
+# Runs GAK experiment
 def evaluate_gak(dataset, w, cps, labels, ts, **seg_kwargs):
     # as in CLaP
     sample_size = 2 * w
@@ -79,6 +81,7 @@ def evaluate_gak(dataset, w, cps, labels, ts, **seg_kwargs):
     return evaluate_clustering_detection_algorithm(dataset, true_seg_labels, pred_seg_labels)
 
 
+# Runs k-Medoids experiment
 def evaluate_kmedoids(dataset, w, cps, labels, ts, **seg_kwargs):
     # as in CLaP
     sample_size = 2 * w
@@ -101,6 +104,7 @@ def evaluate_kmedoids(dataset, w, cps, labels, ts, **seg_kwargs):
     return evaluate_clustering_detection_algorithm(dataset, true_seg_labels, pred_seg_labels)
 
 
+# Runs Time2Feat experiment
 def evaluate_time2feat(dataset, w, cps, labels, ts, **seg_kwargs):
     # as in CLaP
     sample_size = 2 * w
@@ -118,7 +122,8 @@ def evaluate_time2feat(dataset, w, cps, labels, ts, **seg_kwargs):
         df_features = feature_extraction(windows, batch_size=500)
         top_features = feature_selection(df_features, None, context)
         df_features = df_features[top_features]
-        model = ClusterWrapper(n_clusters=np.unique(labels).shape[0], model_type=model_type, transform_type=transform_type)
+        model = ClusterWrapper(n_clusters=np.unique(labels).shape[0], model_type=model_type,
+                               transform_type=transform_type)
         pred = model.fit_predict(df_features.values)
     except Exception as e:
         print(f"Exception: {e}; using only zero class.")
@@ -130,6 +135,7 @@ def evaluate_time2feat(dataset, w, cps, labels, ts, **seg_kwargs):
     return evaluate_clustering_detection_algorithm(dataset, true_seg_labels, pred_seg_labels)
 
 
+# Runs Agglomerative Clustering experiment
 def evaluate_agglomerative(dataset, w, cps, labels, ts, **seg_kwargs):
     # as in CLaP
     sample_size = 2 * w
@@ -148,6 +154,7 @@ def evaluate_agglomerative(dataset, w, cps, labels, ts, **seg_kwargs):
     return evaluate_clustering_detection_algorithm(dataset, true_seg_labels, pred_seg_labels)
 
 
+# Runs Spectral Clustering experiment
 def evaluate_spectral(dataset, w, cps, labels, ts, **seg_kwargs):
     # as in CLaP
     sample_size = 2 * w
@@ -166,12 +173,14 @@ def evaluate_spectral(dataset, w, cps, labels, ts, **seg_kwargs):
     return evaluate_clustering_detection_algorithm(dataset, true_seg_labels, pred_seg_labels)
 
 
+# Evaluates clustering experiment
 def evaluate_clustering_detection_algorithm(dataset, labels_true, labels_pred):
     ami = np.round(adjusted_mutual_info_score(labels_true, labels_pred), 3)
-    # print(f"{dataset}: AMI-Score: {ami}")
+    print(f"{dataset}: AMI-Score: {ami}")
     return dataset, labels_true.tolist(), labels_pred.tolist(), ami
 
 
+# Runs an experiment for a given data set and algorithm
 def evaluate_candidate(dataset_name, candidate_name, eval_func, columns=None, n_jobs=1, verbose=0, **seg_kwargs):
     if dataset_name == "train":
         df = load_train_dataset()
@@ -203,16 +212,16 @@ def evaluate_candidate(dataset_name, candidate_name, eval_func, columns=None, n_
     return df_cand
 
 
-# TODO: Even more competitors in: Li et al. 2021. Time series clustering in linear time complexity. DMKD.
-def evaluate_competitor(dataset_name, exp_path, n_jobs, verbose):
+# Runs experiments for multiple algorithms and a single data set
+def evaluate_competitors(dataset_name, exp_path, n_jobs, verbose):
     if not os.path.exists(exp_path):
         os.mkdir(exp_path)
 
     competitors = [
         ("KShape", evaluate_kshape),
-        # ("KMeans", evaluate_kmeans),
+        ("KMeans", evaluate_kmeans),
         ("GAK", evaluate_gak),
-        # ("KMedoids", evaluate_kmedoids),
+        ("KMedoids", evaluate_kmedoids),
         ("Time2Feat", evaluate_time2feat),
         ("Agglomerative", evaluate_agglomerative),
         ("Spectral", evaluate_spectral)
@@ -235,10 +244,10 @@ def evaluate_competitor(dataset_name, exp_path, n_jobs, verbose):
 
 if __name__ == '__main__':
     exp_path = "../experiments/clustering/"
-    n_jobs, verbose = 50, 0
+    n_jobs, verbose = 1, 0
 
     if not os.path.exists(exp_path):
         os.mkdir(exp_path)
 
-    for bench in ("TSSB", "UTSA", "HAS", "SKAB"): #
-        evaluate_competitor(bench, exp_path, n_jobs, verbose)
+    for bench in ("TSSB", "UTSA", "HAS", "SKAB"):
+        evaluate_competitors(bench, exp_path, n_jobs, verbose)

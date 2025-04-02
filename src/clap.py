@@ -1,24 +1,29 @@
 import hashlib
 import numpy as np
-import pandas as pd
+
 from aeon.classification.convolution_based import MultiRocketHydraClassifier, RocketClassifier
 from aeon.classification.dictionary_based import WEASEL_V2
 from aeon.classification.distance_based import ProximityForest
-from aeon.classification.shapelet_based._rdst import RDSTClassifier
-from aeon.classification.interval_based import QUANTClassifier
 from aeon.classification.feature_based import FreshPRINCEClassifier
+from aeon.classification.interval_based import QUANTClassifier
+from aeon.classification.shapelet_based._rdst import RDSTClassifier
+
 from claspy.window_size import map_window_size_methods
+
 from sklearn.exceptions import NotFittedError
+
 from sklearn.metrics import confusion_matrix, f1_score, log_loss, adjusted_mutual_info_score, hamming_loss, \
     roc_auc_score
 from sklearn.model_selection import KFold
 
+from external.mwf import mwf
 from src.utils import create_state_labels
 
 
 class CLaP:
 
-    def __init__(self, window_size="suss", classifier="rocket", merge_score="cgain", n_splits=5, n_jobs=1, sample_size=1_000,
+    def __init__(self, window_size="suss", classifier="rocket", merge_score="cgain", n_splits=5, n_jobs=1,
+                 sample_size=1_000,
                  random_state=2357):
         self.window_size = window_size
         self.classifier = classifier
@@ -132,7 +137,7 @@ class CLaP:
 
     def fit(self, time_series, change_points, labels=None):
         np.random.seed(self.random_state)
-        # todo: check ts, change points and labels
+        # Todo: check ts, change points and labels
 
         if time_series.ndim == 1:
             # make ts multi-dimensional
@@ -144,8 +149,13 @@ class CLaP:
         W = []
 
         if isinstance(self.window_size, str):
+            if self.window_size == "mwf":
+                wss = mwf
+            else:
+                wss = map_window_size_methods(self.window_size)
+
             for dim in range(time_series.shape[1]):
-                W.append(max(1, map_window_size_methods(self.window_size)(time_series[:, dim])))
+                W.append(max(1, wss(time_series[:, dim])))
 
             if len(W) > 0:
                 self.window_size = int(np.mean(W))
@@ -161,8 +171,6 @@ class CLaP:
         ignore_cache = set()
 
         y_true, y_pred = self._cross_val_classifier(*self._subselect_X_y(X, y))
-
-        tmp_df = []
 
         if self.merge_score == "cgain":
             scorer = self._classification_gain
@@ -185,19 +193,19 @@ class CLaP:
             conf_loss = np.zeros(unique_labels.shape[0], dtype=float)
             conf_index = np.zeros(unique_labels.shape[0], dtype=int)
 
-            # calculate confusions
+            # Calculate confusions
             for idx, conf in enumerate(confusion_matrix(y_true, y_pred)):
-                # drop TPs
+                # Drop TPs
                 tmp = conf.copy()
                 tmp[idx] = 0
 
-                # store most confused label
+                # Store most confused label
                 conf_index[idx] = np.argmax(tmp)
                 conf_loss[idx] = np.max(tmp) / np.sum(conf)
 
             merged = False
 
-            # merge most confused classes (with descending confusion loss)
+            # Merge most confused classes (with descending confusion)
             for idx in np.argsort(conf_loss)[::-1]:
                 label1, label2 = unique_labels[idx], unique_labels[conf_index[idx]]
 
@@ -234,7 +242,6 @@ class CLaP:
                 _y_pred_bin = np.zeros((_y_true.shape[0], n_labels), int)
                 for idx in range(_y_pred.shape[0]): _y_pred_bin[idx][_y_pred[idx] % n_labels] = 1
 
-
                 # if self._classification_gain(y_true, y_pred) > self._classification_gain(_y_true, _y_pred):
                 # if f1_score(y_true, y_pred, average="macro") > f1_score(_y_true, _y_pred, average="macro"):
                 # if -log_loss(y_true_bin, y_pred_bin) > -log_loss(_y_true_bin, _y_pred_bin):
@@ -249,12 +256,10 @@ class CLaP:
                 curr_pred = _y_pred_bin if self.merge_score == "log_loss" or self.merge_score == "roc_auc" and n_labels > 2 else _y_pred
 
                 if scorer(ref_true, ref_pred) > scorer(curr_true, curr_pred):
-                   ignore_cache.add(test_key)
-                   continue
+                    ignore_cache.add(test_key)
+                    continue
 
                 label1, label2 = np.sort([label1, label2])
-
-                # tmp_df.append((label1, label2, -log_loss(_y_true_bin, _y_pred_bin), _y_true, _y_pred))
 
                 labels[labels == label2] = label1
                 y[y == label2] = label1
@@ -265,9 +270,7 @@ class CLaP:
                 merged = True
                 break
 
-        # pd.DataFrame.from_records(tmp_df, columns=["label1", "label2", "neg_log_loss", "y_true", "y_pred"]).to_csv("../tmp/clap_neg_log_loss.csv", index=False)
-
-        # map labels from 0 to n-1
+        # Map labels from 0 to n-1
         label_mapping = {label: idx for idx, label in enumerate(np.unique(labels))}
 
         self.labels = np.array([label_mapping[label] for label in labels], dtype=int)

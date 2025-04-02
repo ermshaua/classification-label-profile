@@ -3,9 +3,8 @@
 import collections
 import errno
 import math
-import os
-
 import matplotlib
+import os
 
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt

@@ -1,19 +1,14 @@
 import os
-import shutil
-import stat
-import tempfile
-import subprocess
-
-from numba import njit
 
 ABS_PATH = os.path.dirname(os.path.abspath(__file__))
 
-from sklearn.base import BaseEstimator, TransformerMixin
+from numba import njit
 
 import numpy as np
 import pandas as pd
 
 
+# Loads specified data set
 def load_datasets(dataset, selection=None):
     desc_filename = ABS_PATH + f"/../datasets/{dataset}/desc.txt"
     desc_file = []
@@ -52,6 +47,7 @@ def load_datasets(dataset, selection=None):
     return pd.DataFrame.from_records(df, columns=["dataset", "window_size", "change_points", "labels", "time_series"])
 
 
+# Loads TSSB data set
 def load_tssb_datasets(names=None):
     desc_filename = os.path.join(ABS_PATH, "../datasets/TSSB", "desc.txt")
     desc_file = []
@@ -90,6 +86,7 @@ def load_tssb_datasets(names=None):
     return pd.DataFrame.from_records(df, columns=["dataset", "window_size", "change_points", "labels", "time_series"])
 
 
+# Loads HAS data set
 def load_has_datasets(selection=None):
     data_path = ABS_PATH + "/../datasets/has2023_master.csv.zip"
 
@@ -134,9 +131,6 @@ def load_has_datasets(selection=None):
                 row["x-mag"].reshape(-1, 1),
                 row["y-mag"].reshape(-1, 1),
                 row["z-mag"].reshape(-1, 1),
-                # row["lat"].reshape(-1, 1),
-                # row["lon"].reshape(-1, 1),
-                # row["speed"].reshape(-1, 1)
             ))
         else:
             raise ValueError("Unknown group in HAS dataset.")
@@ -152,40 +146,7 @@ def load_has_datasets(selection=None):
     ).iloc[selection, :]
 
 
-def load_mosad_datasets():
-    cp_filename = ABS_PATH + "/../datasets/MOSAD/change_points.txt"
-    cp_file = []
-
-    with open(cp_filename, 'r') as file:
-        for line in file.readlines(): cp_file.append(line.split(","))
-
-    activity_filename = ABS_PATH + "/../datasets/MOSAD/activities.txt"
-    activities = dict()
-
-    with open(activity_filename, 'r') as file:
-        for line in file.readlines():
-            line = line.split(",")
-            routine, motions = line[0], line[1:]
-            activities[routine] = [motion.replace("\n", "") for motion in motions]
-
-    ts_filename = ABS_PATH + "/../datasets/MOSAD/data.npz"
-    T = np.load(file=ts_filename)
-
-    df = []
-
-    for row in cp_file:
-        (ts_name, sample_rate), change_points = row[:2], row[2:]
-        routine, subject, sensor = ts_name.split("_")
-        ts = T[ts_name]
-
-        df.append((ts_name, int(routine[-1]), int(subject[-1]), sensor, int(sample_rate),
-                   np.array([int(_) for _ in change_points]), np.array(activities[routine[-1]]), ts))
-
-    return pd.DataFrame.from_records(df,
-                                     columns=["dataset", "routine", "subject", "sensor", "sample_rate", "change_points",
-                                              "activities", "time_series"])
-
-
+# Loads train data set (for ablations)
 def load_train_dataset():
     train_names = [
         'DodgerLoopDay',
@@ -217,30 +178,31 @@ def load_train_dataset():
     return df.sort_values(by="dataset")
 
 
+# Normalizes multivariate time series
 def normalize_time_series(ts):
     flatten = False
 
     if ts.ndim == 1:
-        ts = ts.reshape(-1,1)
+        ts = ts.reshape(-1, 1)
         flatten = True
 
     for dim in range(ts.shape[1]):
-        channel = ts[:,dim]
+        channel = ts[:, dim]
 
-        # min-max normalize channel
+        # Min-max normalize channel
         try:
             channel = np.true_divide(channel - channel.min(), channel.max() - channel.min())
         except FloatingPointError:
             pass
 
-        # interpolate (if missing values are present)
+        # Interpolate (if missing values are present)
         channel[np.isinf(channel)] = np.nan
         channel = pd.Series(channel).interpolate(limit_direction="both").to_numpy()
 
-        # there are series that still contain NaN values
+        # There are series that still contain NaN values
         channel[np.isnan(channel)] = 0
 
-        ts[:,dim] = channel
+        ts[:, dim] = channel
 
     if flatten:
         ts = ts.flatten()
@@ -248,6 +210,7 @@ def normalize_time_series(ts):
     return ts
 
 
+# Create vector of state labels that map to data points
 @njit(fastmath=True, cache=True)
 def create_state_labels(cps, labels, ts_len):
     seg_labels = np.zeros(shape=ts_len, dtype=np.int64)
@@ -265,30 +228,7 @@ def create_state_labels(cps, labels, ts_len):
     return seg_labels
 
 
-def cross_val_knn(offsets, cps, labels, window_size):
-    n_timepoints, k_neighbours = offsets.shape
-
-    y_true = create_state_labels(cps, labels, n_timepoints)
-    knn_labels = np.zeros(shape=(k_neighbours, n_timepoints), dtype=np.int64)
-
-    for i_neighbor in range(k_neighbours):
-        neighbours = offsets[:, i_neighbor]
-        knn_labels[i_neighbor] = y_true[neighbours]
-
-    y_pred = np.zeros_like(y_true)
-
-    for idx in range(n_timepoints):
-        neigh_labels = knn_labels[:, idx]
-        u_labels, counts = np.unique(neigh_labels, return_counts=True)
-        y_pred[idx] = u_labels[np.argmax(counts)]
-
-    for idx, split_idx in enumerate(cps):
-        exclusion_zone = np.arange(split_idx - window_size, split_idx)
-        y_pred[exclusion_zone] = labels[idx + 1]
-
-    return y_true, y_pred
-
-
+# Creates a sliding window from a time series
 def create_sliding_window(time_series, window_size, stride=1):
     X = []
 
@@ -299,6 +239,7 @@ def create_sliding_window(time_series, window_size, stride=1):
     return np.array(X, dtype=time_series.dtype)
 
 
+# Expands a label sequence from a sliding window
 def expand_label_sequence(labels, window_size, stride):
     X = []
 
@@ -308,19 +249,21 @@ def expand_label_sequence(labels, window_size, stride):
     return np.array(X, dtype=labels.dtype)
 
 
+# Collapses a label sequence to its dense representation
 def collapse_label_sequence(label_seq):
     labels = []
 
     for idx in range(1, len(label_seq)):
-        if label_seq[idx-1] != label_seq[idx]:
-            labels.append(label_seq[idx-1])
+        if label_seq[idx - 1] != label_seq[idx]:
+            labels.append(label_seq[idx - 1])
 
-        if idx == len(label_seq)-1:
+        if idx == len(label_seq) - 1:
             labels.append(label_seq[idx])
 
     return np.array(labels)
 
 
+# Extracts CPs from a label sequence
 def extract_cps(label_seq):
     label_diffs = label_seq[:-1] != label_seq[1:]
     return np.arange(label_seq.shape[0] - 1)[label_diffs] + 1

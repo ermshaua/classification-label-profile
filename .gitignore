@@ -26,9 +26,8 @@ __pycache__
 tmp/
 deploy.sh
 archives/
-datasets/
 c/
-experiments/
+notebooks/plots/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

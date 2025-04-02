@@ -1,19 +1,18 @@
 import os
-import tempfile
 
 ABS_PATH = os.path.dirname(os.path.abspath(__file__))
 
-import time
+import tempfile
 
 import numpy as np
 
 
-# to run this method:
+# To run this method:
 #   1. download the adapted autoplait from https://sites.google.com/site/onlinesemanticsegmentation/home
 #   2. place it into c/autoplait
 #   3. build it (make clean autoplait)
 def autoplait(name, ts, n_cps):
-    # raw name sometimes leads to errors with filesystem handling
+    # Raw name sometimes leads to errors with filesystem handling
     name = f"{hash(name)}"
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -62,7 +61,7 @@ def autoplait(name, ts, n_cps):
 
     sorted_args = np.argsort(found_cps)
 
-    # fails sometimes
+    # Fails sometimes
     if len(found_cps) != len(found_labels):
         return np.empty(0, dtype=int), np.empty(0, dtype=int)
 

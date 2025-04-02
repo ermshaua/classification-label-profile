@@ -3,26 +3,19 @@ sys.path.insert(0, "../")
 
 from benchmark.state_detection_test import evaluate_candidate, evaluate_state_detection_algorithm
 
-from external.competitor.time2feat import feature_extraction, feature_selection, ClusterWrapper
-
 import os
 
-from sklearn.metrics import adjusted_mutual_info_score
-
-import daproli as dp
 import pandas as pd
-from tqdm import tqdm
 
-from benchmark.metrics import f_measure, covering
 from src.clap import CLaP
-from src.utils import create_state_labels, load_tssb_datasets, load_datasets, load_has_datasets, extract_cps, \
-    load_train_dataset
+from src.utils import create_state_labels
 
 import numpy as np
 
 np.random.seed(1379)
 
 
+# Runs CLaP experiment
 def evaluate_clap(dataset, w, cps, labels, ts, **seg_kwargs):
     seg_df = seg_kwargs["segmentation"]
     found_cps = seg_df.loc[seg_df["dataset"] == dataset].iloc[0].found_cps
@@ -51,14 +44,16 @@ def evaluate_clap(dataset, w, cps, labels, ts, **seg_kwargs):
     true_seg_labels = create_state_labels(cps, labels, ts.shape[0])
     pred_seg_labels = create_state_labels(found_cps, found_labels, ts.shape[0])
 
-    return evaluate_state_detection_algorithm(dataset, ts.shape[0], cps, found_cps, true_seg_labels, pred_seg_labels, verbose=1)
+    return evaluate_state_detection_algorithm(dataset, ts.shape[0], cps, found_cps, true_seg_labels, pred_seg_labels,
+                                              verbose=1)
 
 
+# Runs window size ablation experiment
 def evaluate_window_size(dataset_name, exp_path, n_jobs, verbose):
     if not os.path.exists(exp_path):
         os.mkdir(exp_path)
 
-    wss = ("suss", "fft", "acf") #
+    wss = ("mwf", "suss", "fft", "acf")
 
     seg_algo = "ClaSP"
     converters = dict([(column, lambda data: np.array(eval(data))) for column in ["found_cps"]])
@@ -84,14 +79,14 @@ def evaluate_window_size(dataset_name, exp_path, n_jobs, verbose):
         df.to_csv(f"{exp_path}{dataset_name}_{candidate_name}.csv.gz", compression='gzip')
 
 
+# Runs segmentation algorithm ablation experiment
 def evaluate_segmentation_algorithm(dataset_name, exp_path, n_jobs, verbose):
     if not os.path.exists(exp_path):
         os.mkdir(exp_path)
 
-    seg_algos = ("ClaSP", "BinSeg", "Window", "Pelt", "FLUSS") # , "RuLSIF"
+    seg_algos = ("ClaSP", "BinSeg", "Window", "Pelt", "FLUSS", "RuLSIF")
 
     converters = dict([(column, lambda data: np.array(eval(data))) for column in ["found_cps"]])
-
 
     for candidate_name in seg_algos:
         print(f"Evaluating competitor: {candidate_name}")
@@ -114,11 +109,12 @@ def evaluate_segmentation_algorithm(dataset_name, exp_path, n_jobs, verbose):
         df.to_csv(f"{exp_path}{dataset_name}_{candidate_name}.csv.gz", compression='gzip')
 
 
+# Runs classification algorithm ablation experiment
 def evaluate_classifier(dataset_name, exp_path, n_jobs, verbose):
     if not os.path.exists(exp_path):
         os.mkdir(exp_path)
 
-    classifiers = ("rocket", "mrhydra", "quant", "weasel",  "rdst", "freshprince", "proximityforest") #
+    classifiers = ("rocket", "mrhydra", "quant", "weasel", "rdst", "freshprince", "proximityforest")
 
     seg_algo = "ClaSP"
     converters = dict([(column, lambda data: np.array(eval(data))) for column in ["found_cps"]])
@@ -126,7 +122,6 @@ def evaluate_classifier(dataset_name, exp_path, n_jobs, verbose):
         f"../experiments/segmentation/{dataset_name}_{seg_algo}.csv.gz",
         converters=converters
     )[["dataset", "found_cps"]]
-
 
     for candidate_name in classifiers:
         print(f"Evaluating competitor: {candidate_name}")
@@ -145,11 +140,12 @@ def evaluate_classifier(dataset_name, exp_path, n_jobs, verbose):
         df.to_csv(f"{exp_path}{dataset_name}_{candidate_name}.csv.gz", compression='gzip')
 
 
+# Runs merge score ablation experiment
 def evaluate_merge_score(dataset_name, exp_path, n_jobs, verbose):
     if not os.path.exists(exp_path):
         os.mkdir(exp_path)
 
-    merge_scores = ("cgain", "f1_score", "log_loss", "ami", "hamming_loss", "roc_auc",) #
+    merge_scores = ("cgain", "f1_score", "log_loss", "ami", "hamming_loss", "roc_auc")
 
     seg_algo = "ClaSP"
     converters = dict([(column, lambda data: np.array(eval(data))) for column in ["found_cps"]])
@@ -177,12 +173,12 @@ def evaluate_merge_score(dataset_name, exp_path, n_jobs, verbose):
 
 if __name__ == '__main__':
     exp_path = "../experiments/ablation_study/"
-    n_jobs, verbose = 3, 0
+    n_jobs, verbose = 1, 0
 
     if not os.path.exists(exp_path):
         os.mkdir(exp_path)
 
     evaluate_window_size("train", exp_path, n_jobs, verbose)
-    # evaluate_segmentation_algorithm("train", exp_path, n_jobs, verbose)
-    # evaluate_classifier("train", exp_path, n_jobs, verbose)
-    # evaluate_merge_score("train", exp_path, n_jobs, verbose)
+    evaluate_segmentation_algorithm("train", exp_path, n_jobs, verbose)
+    evaluate_classifier("train", exp_path, n_jobs, verbose)
+    evaluate_merge_score("train", exp_path, n_jobs, verbose)

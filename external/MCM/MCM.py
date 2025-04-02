@@ -1,18 +1,13 @@
-# taken from: https://github.com/MSD-IRIMAS/Multi_Comparison_Matrix
+# Taken from: https://github.com/MSD-IRIMAS/Multi_Comparison_Matrix
 
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-import matplotlib as mlp
+
 import json
-
 from tqdm import tqdm
 
 from .utils import *
 
 
 class NpEncoder(json.JSONEncoder):
-
     """
 
     Encoder for json files saving.
@@ -30,42 +25,42 @@ class NpEncoder(json.JSONEncoder):
 
 
 def compare(
-    df_results,
-    output_dir="./",
-    pdf_savename=None,
-    png_savename=None,
-    csv_savename=None,
-    tex_savename=None,
-    used_statistic="Accuracy",
-    save_as_json=True,
-    plot_1v1_comparisons=False,
-    order_WinTieLoss="higher",
-    include_ProbaWinTieLoss=False,
-    bayesian_rope=0.01,
-    include_pvalue=True,
-    pvalue_test="wilcoxon",
-    pvalue_correction=None,
-    pvalue_threshold=0.05,
-    use_mean="mean-difference",
-    order_stats="average-statistic",
-    order_better="decreasing",
-    dataset_column=None,
-    precision=4,
-    load_analysis=False,
-    row_comparates=None,
-    col_comparates=None,
-    excluded_row_comparates=None,
-    excluded_col_comparates=None,
-    colormap="coolwarm",
-    fig_size="auto",
-    font_size="auto",
-    colorbar_orientation="vertical",
-    colorbar_value=None,
-    win_label="r>c",
-    tie_label="r=c",
-    loss_label="r<c",
-    include_legend=True,
-    show_symetry=True,
+        df_results,
+        output_dir="./",
+        pdf_savename=None,
+        png_savename=None,
+        csv_savename=None,
+        tex_savename=None,
+        used_statistic="Accuracy",
+        save_as_json=True,
+        plot_1v1_comparisons=False,
+        order_WinTieLoss="higher",
+        include_ProbaWinTieLoss=False,
+        bayesian_rope=0.01,
+        include_pvalue=True,
+        pvalue_test="wilcoxon",
+        pvalue_correction=None,
+        pvalue_threshold=0.05,
+        use_mean="mean-difference",
+        order_stats="average-statistic",
+        order_better="decreasing",
+        dataset_column=None,
+        precision=4,
+        load_analysis=False,
+        row_comparates=None,
+        col_comparates=None,
+        excluded_row_comparates=None,
+        excluded_col_comparates=None,
+        colormap="coolwarm",
+        fig_size="auto",
+        font_size="auto",
+        colorbar_orientation="vertical",
+        colorbar_value=None,
+        win_label="r>c",
+        tie_label="r=c",
+        loss_label="r<c",
+        include_legend=True,
+        show_symetry=True,
 ):
     """
     Generate the MCM
@@ -188,24 +183,24 @@ def compare(
 
 
 def get_analysis(
-    df_results,
-    output_dir="./",
-    used_statistic="Score",
-    save_as_json=True,
-    plot_1v1_comparisons=False,
-    order_WinTieLoss="higher",
-    include_ProbaWinTieLoss=False,
-    bayesian_rope=0.01,
-    include_pvalue=True,
-    pvalue_test="wilcoxon",
-    pvalue_correction=None,
-    pvalue_threshhold=0.05,
-    use_mean="mean-difference",
-    order_stats="average-statistic",
-    order_better="decreasing",
-    dataset_column=None,
-    precision=4,
-    load_analysis=False,
+        df_results,
+        output_dir="./",
+        used_statistic="Score",
+        save_as_json=True,
+        plot_1v1_comparisons=False,
+        order_WinTieLoss="higher",
+        include_ProbaWinTieLoss=False,
+        bayesian_rope=0.01,
+        include_pvalue=True,
+        pvalue_test="wilcoxon",
+        pvalue_correction=None,
+        pvalue_threshhold=0.05,
+        use_mean="mean-difference",
+        order_stats="average-statistic",
+        order_better="decreasing",
+        dataset_column=None,
+        precision=4,
+        load_analysis=False,
 ):
     """
 
@@ -344,27 +339,27 @@ def get_analysis(
 
 
 def draw(
-    analysis,
-    output_dir="./",
-    pdf_savename=None,
-    png_savename=None,
-    csv_savename=None,
-    tex_savename=None,
-    row_comparates=None,
-    col_comparates=None,
-    excluded_row_comparates=None,
-    excluded_col_comparates=None,
-    precision=4,
-    colormap="coolwarm",
-    fig_size="auto",
-    font_size="auto",
-    colorbar_orientation="vertical",
-    colorbar_value=None,
-    win_label="r>c",
-    tie_label="r=c",
-    loss_label="r<c",
-    show_symetry=True,
-    include_legend=True,
+        analysis,
+        output_dir="./",
+        pdf_savename=None,
+        png_savename=None,
+        csv_savename=None,
+        tex_savename=None,
+        row_comparates=None,
+        col_comparates=None,
+        excluded_row_comparates=None,
+        excluded_col_comparates=None,
+        precision=4,
+        colormap="coolwarm",
+        fig_size="auto",
+        font_size="auto",
+        colorbar_orientation="vertical",
+        colorbar_value=None,
+        win_label="r>c",
+        tie_label="r=c",
+        loss_label="r<c",
+        show_symetry=True,
+        include_legend=True,
 ):
     """
 
@@ -582,9 +577,9 @@ def draw(
 
     if colormap is not None:
         if (
-            (p_value_cell_location is None)
-            and (legend_cell_location is None)
-            and (colorbar_orientation == "horizontal")
+                (p_value_cell_location is None)
+                and (legend_cell_location is None)
+                and (colorbar_orientation == "horizontal")
         ):
             shrink = 0.4
         else:
@@ -639,7 +634,7 @@ def draw(
             if row_comparate == col_comparate:
                 if p_value_cell_location is not None:
                     if (i == p_value_cell_location[0]) and (
-                        j == p_value_cell_location[1]
+                            j == p_value_cell_location[1]
                     ):
                         cell_text_arguments.update(
                             fontweight="bold", fontsize=font_size
@@ -647,7 +642,7 @@ def draw(
 
                 if legend_cell_location is not None:
                     if (i == legend_cell_location[0]) and (
-                        j == legend_cell_location[1]
+                            j == legend_cell_location[1]
                     ):
                         cell_text_arguments.update(fontsize=font_size)
 
@@ -791,32 +786,32 @@ def draw(
 
     if colorbar_orientation == "horizontal":
         latex_string += (
-            latex_colorbar_0
-            + "width=0sp,height=0sp,colorbar horizontal,colorbar style={width=0.25\linewidth,"
-            + latex_colorbar_1
-            + latex_colorbar_2
-            + latex_colorbar_3
-            + ",scaled x ticks=false,xticklabel style={/pgf/number format/fixed,/pgf/number format/precision=3},"
-            + f"xlabel={{{_colorbar_value}}},"
-            + latex_colorbar_4
+                latex_colorbar_0
+                + "width=0sp,height=0sp,colorbar horizontal,colorbar style={width=0.25\linewidth,"
+                + latex_colorbar_1
+                + latex_colorbar_2
+                + latex_colorbar_3
+                + ",scaled x ticks=false,xticklabel style={/pgf/number format/fixed,/pgf/number format/precision=3},"
+                + f"xlabel={{{_colorbar_value}}},"
+                + latex_colorbar_4
         )
     else:
         latex_string += (
-            latex_colorbar_0
-            + "width=1pt,colorbar right,colorbar style={height=0.25\linewidth,"
-            + latex_colorbar_1
-            + latex_colorbar_2
-            + latex_colorbar_3
-            + ",scaled y ticks=false,ylabel style={rotate=180},yticklabel style={/pgf/number format/fixed,/pgf/number format/precision=3},"
-            + f"ylabel={{{_colorbar_value}}},"
-            + latex_colorbar_4
+                latex_colorbar_0
+                + "width=1pt,colorbar right,colorbar style={height=0.25\linewidth,"
+                + latex_colorbar_1
+                + latex_colorbar_2
+                + latex_colorbar_3
+                + ",scaled y ticks=false,ylabel style={rotate=180},yticklabel style={/pgf/number format/fixed,/pgf/number format/precision=3},"
+                + f"ylabel={{{_colorbar_value}}},"
+                + latex_colorbar_4
         )
 
     latex_string += "\\end{center}\n"
     latex_string += (
-        "\\caption{[...] \\textbf{"
-        + f"{p_value_text}".replace("\n", " ")
-        + "} [...]}\n"
+            "\\caption{[...] \\textbf{"
+            + f"{p_value_text}".replace("\n", " ")
+            + "} [...]}\n"
     )
     latex_string += "\\end{table}\n"
     latex_string += "\\end{document}\n"
@@ -826,7 +821,7 @@ def draw(
 
     if tex_savename is not None:
         with open(
-            f"{output_dir}/{tex_savename}.tex", "w", encoding="utf8", newline="\n"
+                f"{output_dir}/{tex_savename}.tex", "w", encoding="utf8", newline="\n"
         ) as file:
             file.writelines(latex_string)
 

@@ -1,15 +1,15 @@
-# taken from: https://github.com/softlab-unimore/time2feat
+# Taken from: https://github.com/softlab-unimore/time2feat
+
+from collections import defaultdict
 
 import itertools
 import multiprocessing as mp
-import os
-import time
-import warnings
-from collections import defaultdict
-
 import numpy as np
+import os
 import pandas as pd
 import scipy.spatial.distance as dist
+import time
+import warnings
 from sklearn.cluster import AgglomerativeClustering, SpectralClustering
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
