@@ -8,7 +8,7 @@ import numpy as np
 
 
 # To run this method:
-#   1. download the adapted autoplait from https://sites.google.com/site/onlinesemanticsegmentation/home
+#   1. download the adapted autoplait from https://sites.google.com/site/onlinesemanticsegmentation/
 #   2. place it into c/autoplait
 #   3. build it (make clean autoplait)
 def autoplait(name, ts, n_cps):
