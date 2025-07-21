@@ -1,5 +1,6 @@
 import os
 import sys
+
 sys.path.insert(0, "../")
 import time
 
@@ -20,6 +21,14 @@ from src.utils import load_datasets, load_tssb_datasets, load_has_datasets, load
 import numpy as np
 
 np.random.seed(1379)
+
+
+# Runs Dummy experiment
+def evaluate_dummy(dataset, w, cps, labels, ts, **seg_kwargs):
+    runtime = time.process_time()
+    found_cps = np.sort(np.random.choice(range(1, ts.shape[0] - 1), len(cps), replace=False))
+    runtime = time.process_time() - runtime
+    return evalute_segmentation_algorithm(dataset, ts.shape[0], cps, found_cps, runtime)
 
 
 # Runs ClaSP experiment
@@ -126,7 +135,7 @@ def evalute_segmentation_algorithm(dataset, n_timestamps, cps_true, cps_pred, ru
     f1_score = np.round(f_measure({0: cps_true}, cps_pred, margin=int(n_timestamps * .01)), 3)
     covering_score = np.round(covering({0: cps_true}, cps_pred, n_timestamps), 3)
 
-    print(f"{dataset}: F1-Score: {f1_score}, Covering-Score: {covering_score} Found CPs: {cps_pred}")
+    # print(f"{dataset}: F1-Score: {f1_score}, Covering-Score: {covering_score} Found CPs: {cps_pred}")
 
     if profile is not None:
         return dataset, cps_true.tolist(), cps_pred.tolist(), f1_score, covering_score, runtime, profile.tolist()
@@ -173,6 +182,7 @@ def evaluate_competitor(dataset_name, exp_path, n_jobs, verbose):
         os.mkdir(exp_path)
 
     competitors = [
+        ("DummySeg", evaluate_dummy),
         ("ClaSP", evaluate_clasp),
         ("BinSeg", evaluate_binseg),
         ("Window", evaluate_window),
@@ -202,5 +212,5 @@ if __name__ == '__main__':
     if not os.path.exists(exp_path):
         os.mkdir(exp_path)
 
-    for bench in ("TSSB", "UTSA", "HAS", "SKAB"):
+    for bench in ("TSSB", "UTSA", "HAS", "SKAB", "MIT-BIH"):
         evaluate_competitor(bench, exp_path, n_jobs, verbose)

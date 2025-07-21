@@ -1,17 +1,14 @@
 import hashlib
 import numpy as np
-
+from aeon.classification import DummyClassifier
 from aeon.classification.convolution_based import MultiRocketHydraClassifier, RocketClassifier
 from aeon.classification.dictionary_based import WEASEL_V2
 from aeon.classification.distance_based import ProximityForest
 from aeon.classification.feature_based import FreshPRINCEClassifier
 from aeon.classification.interval_based import QUANTClassifier
 from aeon.classification.shapelet_based._rdst import RDSTClassifier
-
 from claspy.window_size import map_window_size_methods
-
 from sklearn.exceptions import NotFittedError
-
 from sklearn.metrics import confusion_matrix, f1_score, log_loss, adjusted_mutual_info_score, hamming_loss, \
     roc_auc_score
 from sklearn.model_selection import KFold
@@ -87,7 +84,9 @@ class CLaP:
             X_train, y_train = X[train_idx], y[train_idx]
             X_test, y_test = X[test_idx], y[test_idx]
 
-            if self.classifier == "mrhydra":
+            if self.classifier == "dummy":
+                clf = DummyClassifier(strategy="uniform", random_state=self.random_state)
+            elif self.classifier == "mrhydra":
                 clf = MultiRocketHydraClassifier(n_jobs=self.n_jobs, random_state=self.random_state)
             elif self.classifier == "rocket":
                 clf = RocketClassifier(n_jobs=self.n_jobs, random_state=self.random_state)

@@ -1,4 +1,5 @@
 import sys
+
 sys.path.insert(0, "../")
 
 from benchmark.state_detection_test import evaluate_candidate, evaluate_state_detection_algorithm
@@ -45,7 +46,7 @@ def evaluate_clap(dataset, w, cps, labels, ts, **seg_kwargs):
     pred_seg_labels = create_state_labels(found_cps, found_labels, ts.shape[0])
 
     return evaluate_state_detection_algorithm(dataset, ts.shape[0], cps, found_cps, true_seg_labels, pred_seg_labels,
-                                              verbose=1)
+                                              None, verbose=1)
 
 
 # Runs window size ablation experiment
@@ -84,7 +85,7 @@ def evaluate_segmentation_algorithm(dataset_name, exp_path, n_jobs, verbose):
     if not os.path.exists(exp_path):
         os.mkdir(exp_path)
 
-    seg_algos = ("ClaSP", "BinSeg", "Window", "Pelt", "FLUSS", "RuLSIF")
+    seg_algos = ("DummySeg", "ClaSP", "BinSeg", "Window", "Pelt", "FLUSS", "RuLSIF")  #
 
     converters = dict([(column, lambda data: np.array(eval(data))) for column in ["found_cps"]])
 
@@ -114,7 +115,7 @@ def evaluate_classifier(dataset_name, exp_path, n_jobs, verbose):
     if not os.path.exists(exp_path):
         os.mkdir(exp_path)
 
-    classifiers = ("rocket", "mrhydra", "quant", "weasel", "rdst", "freshprince", "proximityforest")
+    classifiers = ("dummy", "rocket", "mrhydra", "quant", "weasel", "rdst", "freshprince", "proximityforest")
 
     seg_algo = "ClaSP"
     converters = dict([(column, lambda data: np.array(eval(data))) for column in ["found_cps"]])

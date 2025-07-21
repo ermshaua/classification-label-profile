@@ -1,4 +1,5 @@
 import sys
+from scipy.signal import resample
 
 sys.path.insert(0, "../")
 
@@ -116,6 +117,39 @@ def evaluate_time2state(dataset, w, cps, labels, ts, **seg_kwargs):
                                               runtime)
 
 
+# Runs E2USD experiment
+def evaluate_e2usd(dataset, w, cps, labels, ts, **seg_kwargs):
+    from external.competitor.e2usd import E2USD, E2USD_Adaper, DPGMM, params
+    runtime = time.process_time()
+
+    window_size, step = 256, 50
+    params['in_channels'] = 1 if ts.ndim == 1 else ts.shape[1]
+
+    # min-max normalize ts
+    ts = normalize_time_series(ts)
+
+    if ts.ndim == 1:
+        ts = ts.reshape(-1, 1)
+
+    true_seg_labels = create_state_labels(cps, labels, ts.shape[0])
+
+    try:
+        e2usd = E2USD(
+            window_size, step, E2USD_Adaper(params), DPGMM(None)
+        ).fit(ts, window_size, step)
+
+        pred_seg_labels = e2usd.state_seq
+    except ValueError as e:
+        print(f"Exception: {e}; using only zero class.")
+        pred_seg_labels = np.zeros_like(true_seg_labels)
+
+    found_cps = extract_cps(pred_seg_labels)
+    runtime = time.process_time() - runtime
+
+    return evaluate_state_detection_algorithm(dataset, ts.shape[0], cps, found_cps, true_seg_labels, pred_seg_labels,
+                                              runtime)
+
+
 # Runs TICC experiment
 def evaluate_ticc(dataset, w, cps, labels, ts, **seg_kwargs):
     from external.competitor.ticc import TICC
@@ -172,6 +206,12 @@ def evaluate_hdp_hsmm(dataset, w, cps, labels, ts, **seg_kwargs):
 
     if ts.ndim == 1:
         ts = ts.reshape(-1, 1)
+
+    # HDP-HSMM code breaks for TS with > 200k data points
+    if ts.shape[0] > 200_000:
+        resample_rate = 200_000 / ts.shape[0]
+        ts = resample(ts, int(ts.shape[0] * resample_rate))
+        cps = np.array(cps * resample_rate, dtype=int)
 
     true_seg_labels = create_state_labels(cps, labels, ts.shape[0])
 
@@ -248,6 +288,7 @@ def evaluate_competitor(dataset_name, exp_path, n_jobs, verbose):
     competitors = [
         ("CLaP", evaluate_clap),
         ("Time2State", evaluate_time2state),
+        ("E2USD", evaluate_e2usd),
         ("TICC", evaluate_ticc),
         ("AutoPlait", evaluate_autoplait),
         ("HDP-HSMM", evaluate_hdp_hsmm),
@@ -287,5 +328,5 @@ if __name__ == '__main__':
     if not os.path.exists(exp_path):
         os.mkdir(exp_path)
 
-    for bench in ("TSSB", "UTSA", "SKAB", "HAS"):
+    for bench in ("TSSB", "UTSA", "SKAB", "HAS", "MIT-BIH"):
         evaluate_competitor(bench, exp_path, n_jobs, verbose)
